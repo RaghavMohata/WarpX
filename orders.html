@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Orders | WarpX</title>
+<meta name="description" content="Your WarpX order history.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <div class="nav-links" id="navLinks">
+      <a href="index.html">Home</a>
+      <a href="food.html">Food</a>
+      <a href="grocery.html">Grocery</a>
+      <a href="medicine.html">Medicine</a>
+      <a href="laundry.html">Laundry</a>
+      <a href="anything.html">Anything Else</a>
+    </div>
+    <div class="nav-actions">
+      <button class="icon-btn" data-open-cart aria-label="Cart">
+        🛒<span class="cart-count" data-cart-count style="display:none;">0</span>
+      </button>
+      <a href="login.html" class="btn btn-primary btn-sm hide-mobile">Login</a>
+      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</nav>
+
+<header class="page-hero ph-login">
+  <div class="container">
+    <span class="badge badge-lime" style="margin-bottom:12px;">📦 Order history</span>
+    <h1 style="color:#fff;">My orders</h1>
+    <p>Every order placed while the WarpX server was running — pulled straight from the database.</p>
+  </div>
+</header>
+
+<section class="section">
+  <div class="container" style="max-width:760px;">
+    <div id="ordersList"></div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="brand" style="color:#fff;margin-bottom:10px;"><span class="brand-mark">W</span>WarpX</div>
+        <p>Anything you need, delivered at warp speed.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="food.html">Picasso Cafe</a>
+        <a href="grocery.html">Grocery</a>
+        <a href="medicine.html">Medicine</a>
+        <a href="laundry.html">Laundry</a>
+        <a href="anything.html">Anything Else</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="index.html#about">About</a>
+        <a href="index.html#how">How it works</a>
+        <a href="login.html">Login / Sign up</a>
+        <a href="orders.html">My Orders</a>
+      </div>
+      <div>
+        <h4>Delivery</h4>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Flat ₹20 delivery fee</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 WarpX. A quick-commerce demo for small towns.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="js/cart.js"></script>
+<script src="js/location.js"></script>
+<script src="js/main.js"></script>
+<script>
+function escapeAttr(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+async function loadOrders() {
+  const list = document.getElementById("ordersList");
+  let user;
+  try { user = JSON.parse(localStorage.getItem("warpx_user")); } catch (e) {}
+
+  if (!user || !user.id) {
+    list.innerHTML = `
+      <div class="card center" style="padding:48px 24px;">
+        <div style="font-size:2rem;margin-bottom:10px;">🔒</div>
+        <h3>No account found on this device</h3>
+        <p class="text-muted">Order history is tied to your WarpX account. Log in first — this only works with the local server running, since that's what saves orders to the database.</p>
+        <a href="login.html" class="btn btn-primary">Login / Sign up</a>
+      </div>`;
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/orders/${user.id}`);
+    if (!res.ok) throw new Error("failed");
+    const orders = await res.json();
+
+    if (orders.length === 0) {
+      list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">📭</div><h3>No orders yet</h3><p class="text-muted mb-0">Place one from any service page — it'll show up here.</p></div>`;
+      return;
+    }
+
+    list.innerHTML = orders.map((o) => `
+      <div class="card" style="padding:24px;margin-bottom:16px;">
+        <div class="row-between" style="margin-bottom:10px;">
+          <div>
+            <b>#${escapeAttr(o.order_number)}</b>
+            <div class="text-muted" style="font-size:.82rem;">${escapeAttr(o.created_at)}</div>
+          </div>
+          <span class="badge badge-success">${escapeAttr(o.status)}</span>
+        </div>
+        <div style="margin-bottom:10px;">
+          ${o.items.map((it) => `
+            <div class="row-between" style="font-size:.9rem;padding:4px 0;">
+              <span>${it.qty} × ${escapeAttr(it.name)} <span class="text-muted">(${escapeAttr(SERVICE_META[it.service]?.label || it.service)})</span></span>
+              <span>${it.price != null ? "₹" + (it.price * it.qty) : "TBC"}</span>
+            </div>`).join("")}
+        </div>
+        <div class="divider" style="margin:12px 0;"></div>
+        <div class="row-between" style="font-weight:700;">
+          <span>Total (incl. ₹${o.delivery_fee} delivery)</span>
+          <span>₹${o.total}</span>
+        </div>
+        <div class="text-muted" style="font-size:.8rem;margin-top:6px;">Estimated delivery: ${escapeAttr(o.eta_min)} min</div>
+      </div>
+    `).join("");
+  } catch (err) {
+    list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">🛰️</div><h3>Can't reach the server</h3><p class="text-muted mb-0">Order history needs the WarpX backend running (<code>npm start</code>) — it's what talks to the database.</p></div>`;
+  }
+}
+
+loadOrders();
+</script>
+</body>
+</html>

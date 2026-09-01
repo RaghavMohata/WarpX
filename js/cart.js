@@ -155,23 +155,48 @@ function showToast(msg) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 2400);
 }
 
-function placeOrder() {
-  const cart = getCart();
-  if (cart.length === 0) return;
-  const orderId = "WPX" + Math.floor(100000 + Math.random() * 900000);
-  const loc = getSavedLocation ? getSavedLocation() : null;
-  const eta = loc && loc.etaMin ? `${loc.etaMin} min` : "20-30 min";
+function getWarpxUser() {
+  try { return JSON.parse(localStorage.getItem("warpx_user")); }
+  catch (e) { return null; }
+}
+
+function showOrderModal(orderNumber, eta, persisted) {
   const modalBody = document.getElementById("modalBody");
   if (modalBody) {
     modalBody.innerHTML = `
       <div class="modal-icon">✅</div>
       <h3>Order placed!</h3>
-      <p class="text-muted">Order <b>#${orderId}</b> is being prepped. At warp speed, expect it in about <b>${eta}</b>.</p>
-      <p class="text-muted" style="font-size:.85rem;">This is a demo checkout — no real payment or delivery is triggered.</p>
+      <p class="text-muted">Order <b>#${orderNumber}</b> is being prepped. At warp speed, expect it in about <b>${eta}</b>.</p>
+      <p class="text-muted" style="font-size:.85rem;">Cash on delivery. ${persisted ? "Saved to your order history." : "This is a local demo checkout — no server was detected, so nothing was saved to a database."}</p>
+      ${persisted ? `<a href="orders.html" class="btn btn-ghost btn-block" style="margin-bottom:10px;">View order history</a>` : ""}
       <button class="btn btn-primary btn-block" onclick="closeModal()">Done</button>
     `;
   }
   document.getElementById("orderModal")?.classList.add("open");
+}
+
+async function placeOrder() {
+  const cart = getCart();
+  if (cart.length === 0) return;
+  const user = getWarpxUser();
+  const loc = getSavedLocation ? getSavedLocation() : null;
+
+  try {
+    const res = await fetch("/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user?.id, items: cart }),
+    });
+    if (!res.ok) throw new Error("order save failed");
+    const order = await res.json();
+    showOrderModal(order.orderNumber, `${order.etaMin} min`, true);
+  } catch (err) {
+    // No backend running — keep the demo usable with a local-only order.
+    const orderNumber = "WPX" + Math.floor(100000 + Math.random() * 900000);
+    const eta = loc && loc.etaMin ? `${loc.etaMin} min` : "20-30 min";
+    showOrderModal(orderNumber, eta, false);
+  }
+
   clearCart();
   closeDrawer();
 }

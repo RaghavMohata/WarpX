@@ -191,12 +191,8 @@ function renderZoneResult() {
   const el = document.getElementById("zoneResult");
   if (!currentLoc) { el.innerHTML = ""; return; }
   const z = classifyZone(currentLoc.lat, currentLoc.lng);
-  if (z.zone === "out") {
-    el.innerHTML = `<div class="zone-result out"><span class="zi">🛰️</span><div><b>Just outside our current warp zone</b><p class="mb-0">You're about ${z.distanceKm.toFixed(1)} km from our nearest store — a little beyond our ${ZONE_EXT_KM} km delivery radius today. You can still continue; we'll let you know if we can reach you.</p></div></div>`;
-  } else {
-    const label = z.zone === "core" ? "Prime warp zone" : "Extended zone";
-    el.innerHTML = `<div class="zone-result in"><span class="zi">⚡</span><div><b>${label} — you're covered!</b><p class="mb-0">~${z.distanceKm.toFixed(1)} km from our store. Estimated delivery: <b>${z.etaMin} min</b>.</p></div></div>`;
-  }
+  const label = z.zone === "core" ? "Prime warp zone" : "Extended zone";
+  el.innerHTML = `<div class="zone-result in"><span class="zi">⚡</span><div><b>${label} — you're covered!</b><p class="mb-0">~${z.distanceKm.toFixed(1)} km from our store. Estimated delivery: <b>${z.etaMin} min</b>.</p></div></div>`;
 }
 
 function useGps() {

@@ -65,8 +65,7 @@ function pctToLatLng(xPct, yPct) {
 function classifyZone(lat, lng) {
   const distanceKm = haversineKm(lat, lng, DARK_STORE.lat, DARK_STORE.lng);
   if (distanceKm <= ZONE_CORE_KM) return { distanceKm, zone: "core", etaMin: "10-15" };
-  if (distanceKm <= ZONE_EXT_KM) return { distanceKm, zone: "extended", etaMin: "15-25" };
-  return { distanceKm, zone: "out", etaMin: null };
+  return { distanceKm, zone: "extended", etaMin: "15-25" };
 }
 
 function saveLocation(loc) {

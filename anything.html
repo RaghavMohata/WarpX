@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anything Else | WarpX</title>
+<meta name="description" content="Not food, grocery, medicine or laundry? Tell WarpX what you need and we'll get it delivered — or picked up and dropped — at warp speed.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <div class="nav-links" id="navLinks">
+      <a href="index.html">Home</a>
+      <a href="food.html">Food</a>
+      <a href="grocery.html">Grocery</a>
+      <a href="medicine.html">Medicine</a>
+      <a href="laundry.html">Laundry</a>
+      <a href="anything.html">Anything Else</a>
+    </div>
+    <div class="nav-actions">
+      <button class="icon-btn" data-open-cart aria-label="Cart">
+        🛒<span class="cart-count" data-cart-count style="display:none;">0</span>
+      </button>
+      <a href="login.html" class="btn btn-primary btn-sm hide-mobile">Login</a>
+      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</nav>
+
+<header class="page-hero ph-anything">
+  <div class="container">
+    <span class="badge badge-lime" style="margin-bottom:12px;">✨ The core idea</span>
+    <h1 style="color:#fff;">Anything you need — just write it.</h1>
+    <p>Not food, grocery, medicine or laundry? Doesn't matter. Describe what you need picked up or dropped off anywhere in town, and we'll figure out how to get it to you — at warp speed.</p>
+  </div>
+</header>
+
+<section class="section">
+  <div class="container" style="max-width:760px;">
+
+    <div class="card" style="padding:32px;margin-bottom:24px;">
+      <h3>What do you need?</h3>
+      <div class="field">
+        <label>What kind of request is this?</label>
+        <div class="segmented" id="typeSeg">
+          <button type="button" class="active" data-val="deliver">🛍️ Get something delivered</button>
+          <button type="button" data-val="courier">📦 Pick up & drop between places</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="anyDesc" id="anyDescLabel">Describe what you need</label>
+        <textarea id="anyDesc" placeholder="e.g. A specific spare part from the hardware shop on Market Road, or 3 packets of a brand not in our grocery list, or a birthday cake from any bakery in town..."></textarea>
+      </div>
+
+      <div id="courierFields" style="display:none;">
+        <div class="input-row">
+          <div class="field">
+            <label for="pickupFrom">Pick up from</label>
+            <input type="text" id="pickupFrom" placeholder="e.g. My home, Lakeview Road">
+          </div>
+          <div class="field">
+            <label for="dropAt">Drop at</label>
+            <input type="text" id="dropAt" placeholder="e.g. My office, Market Chowk">
+          </div>
+        </div>
+      </div>
+
+      <div class="input-row">
+        <div class="field">
+          <label for="anyCategory">Closest category (optional)</label>
+          <select id="anyCategory">
+            <option value="">Not sure / other</option>
+            <option>Food</option>
+            <option>Grocery</option>
+            <option>Medicine</option>
+            <option>Laundry</option>
+            <option>Documents / Courier</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="anyPhone">Contact number</label>
+          <input type="tel" id="anyPhone" placeholder="10-digit mobile number">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Urgency</label>
+        <div class="segmented" id="anyUrgencySeg">
+          <button type="button" class="active" data-val="Normal">Normal</button>
+          <button type="button" data-val="Urgent">Urgent</button>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-block" onclick="addAnythingRequest()">Send request at warp speed 🚀</button>
+    </div>
+
+    <div class="note-box">
+      <div style="font-size:1.3rem;">⚡</div>
+      <div>
+        <b>Why this page exists</b>
+        <p>Every catalog has limits — a small town's needs don't. If we don't already have a category for it, this is where you just tell us, and we'll work out the details with you before it's picked up.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="brand" style="color:#fff;margin-bottom:10px;"><span class="brand-mark">W</span>WarpX</div>
+        <p>Anything you need, delivered at warp speed.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="food.html">Picasso Cafe</a>
+        <a href="grocery.html">Grocery</a>
+        <a href="medicine.html">Medicine</a>
+        <a href="laundry.html">Laundry</a>
+        <a href="anything.html">Anything Else</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="index.html#about">About</a>
+        <a href="index.html#how">How it works</a>
+        <a href="login.html">Login / Sign up</a>
+      </div>
+      <div>
+        <h4>Delivery</h4>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Flat ₹20 delivery fee</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 WarpX. A quick-commerce demo for small towns.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="js/cart.js"></script>
+<script src="js/location.js"></script>
+<script src="js/main.js"></script>
+<script>
+let reqType = "deliver";
+document.getElementById("typeSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#typeSeg button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  reqType = btn.dataset.val;
+  const isCourier = reqType === "courier";
+  document.getElementById("courierFields").style.display = isCourier ? "block" : "none";
+  document.getElementById("anyDescLabel").textContent = isCourier ? "What are we moving?" : "Describe what you need";
+});
+
+let anyUrgency = "Normal";
+document.getElementById("anyUrgencySeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#anyUrgencySeg button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  anyUrgency = btn.dataset.val;
+});
+
+function addAnythingRequest() {
+  const desc = document.getElementById("anyDesc").value.trim();
+  const category = document.getElementById("anyCategory").value;
+  const phone = document.getElementById("anyPhone").value.trim();
+  if (!desc) return showToast("Tell us what you need first.");
+  if (!phone) return showToast("A contact number helps us confirm details.");
+
+  const parts = [`Contact: ${phone}`, `Urgency: ${anyUrgency}`];
+  if (category) parts.push(`Category: ${category}`);
+  if (reqType === "courier") {
+    const from = document.getElementById("pickupFrom").value.trim();
+    const to = document.getElementById("dropAt").value.trim();
+    parts.push(`Pickup & drop: ${from || "?"} → ${to || "?"}`);
+  }
+
+  addToCart({
+    service: "anything",
+    name: desc.slice(0, 50) + (desc.length > 50 ? "…" : ""),
+    price: null,
+    note: parts.join(" · "),
+  });
+
+  document.getElementById("anyDesc").value = "";
+  document.getElementById("pickupFrom").value = "";
+  document.getElementById("dropAt").value = "";
+}
+</script>
+</body>
+</html>

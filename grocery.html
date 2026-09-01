@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grocery | WarpX</title>
+<meta name="description" content="Order groceries by category — vegetables, grains, dairy, daily needs and more. Don't see it? Just type it in.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <div class="nav-links" id="navLinks">
+      <a href="index.html">Home</a>
+      <a href="food.html">Food</a>
+      <a href="grocery.html">Grocery</a>
+      <a href="medicine.html">Medicine</a>
+      <a href="laundry.html">Laundry</a>
+      <a href="anything.html">Anything Else</a>
+    </div>
+    <div class="nav-actions">
+      <button class="icon-btn" data-open-cart aria-label="Cart">
+        🛒<span class="cart-count" data-cart-count style="display:none;">0</span>
+      </button>
+      <a href="login.html" class="btn btn-primary btn-sm hide-mobile">Login</a>
+      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</nav>
+
+<header class="page-hero ph-grocery">
+  <div class="container">
+    <span class="badge badge-lime" style="margin-bottom:12px;">🥬 Grocery · Pickup & Delivery</span>
+    <h1 style="color:#fff;">Grocery</h1>
+    <p>We don't run a fixed catalog — pick a category, tap a common item or type exactly what you need, and we'll get it from the nearest store.</p>
+  </div>
+</header>
+
+<section class="section">
+  <div class="container">
+    <div class="note-box" style="margin-bottom:32px;">
+      <div style="font-size:1.3rem;">✍️</div>
+      <div>
+        <b>How grocery ordering works on WarpX</b>
+        <p>Tap a quick-add chip for common items, or use the "add your own" box in each category to write exactly what you want — brand, quantity, anything. Prices are confirmed by your delivery partner at the store.</p>
+      </div>
+    </div>
+
+    <div id="groceryCategories"></div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="brand" style="color:#fff;margin-bottom:10px;"><span class="brand-mark">W</span>WarpX</div>
+        <p>Anything you need, delivered at warp speed.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="food.html">Picasso Cafe</a>
+        <a href="grocery.html">Grocery</a>
+        <a href="medicine.html">Medicine</a>
+        <a href="laundry.html">Laundry</a>
+        <a href="anything.html">Anything Else</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="index.html#about">About</a>
+        <a href="index.html#how">How it works</a>
+        <a href="login.html">Login / Sign up</a>
+      </div>
+      <div>
+        <h4>Delivery</h4>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Flat ₹20 delivery fee</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 WarpX. A quick-commerce demo for small towns.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="js/cart.js"></script>
+<script src="js/location.js"></script>
+<script src="js/main.js"></script>
+<script>
+const GROCERY_CATEGORIES = [
+  { id: "veg", icon: "🥦", name: "Vegetables & Fruits", chips: ["Onion 1kg", "Tomato 1kg", "Potato 1kg", "Banana 1 dozen", "Apple 1kg", "Green Chilli 250g", "Coriander bunch"] },
+  { id: "grains", icon: "🌾", name: "Grains, Atta & Dals", chips: ["Wheat Atta 5kg", "Basmati Rice 1kg", "Toor Dal 1kg", "Moong Dal 1kg", "Sugar 1kg", "Salt 1kg"] },
+  { id: "dairy", icon: "🥛", name: "Dairy & Bakery", chips: ["Milk 1L", "Curd 400g", "Bread loaf", "Butter 100g", "Eggs 6 pc", "Paneer 200g"] },
+  { id: "daily", icon: "🧴", name: "Daily Needs & Household", chips: ["Dish Soap", "Detergent 1kg", "Toothpaste", "Soap Bar", "Tissue Roll", "Garbage Bags"] },
+  { id: "snacks", icon: "🍪", name: "Snacks & Beverages", chips: ["Biscuits pack", "Chips packet", "Tea 250g", "Coffee 100g", "Cold Drink 1L", "Namkeen 200g"] },
+  { id: "care", icon: "🧼", name: "Personal Care", chips: ["Shampoo bottle", "Face Wash", "Sanitary Pads", "Hand Sanitizer", "Razor"] },
+];
+
+function renderGrocery() {
+  const wrap = document.getElementById("groceryCategories");
+  wrap.innerHTML = GROCERY_CATEGORIES.map((cat) => `
+    <div class="category-block">
+      <div class="category-head">
+        <span class="category-emoji">${cat.icon}</span>
+        <h3 style="margin:0;">${cat.name}</h3>
+      </div>
+      <div class="chip-row" style="margin-bottom:16px;">
+        ${cat.chips.map((c) => `<button type="button" class="chip" onclick='quickAddGrocery(${JSON.stringify(c)}, ${JSON.stringify(cat.name)})'>+ ${c}</button>`).join("")}
+      </div>
+      <div class="input-row">
+        <input type="text" id="custom-${cat.id}" placeholder="Add your own item — e.g. 2kg Maggi noodles, a specific brand...">
+        <button class="btn btn-ghost" style="flex:0 0 auto;" onclick='addCustomGrocery(${JSON.stringify(cat.id)}, ${JSON.stringify(cat.name)})'>Add</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function quickAddGrocery(itemName, categoryName) {
+  addToCart({ service: "grocery", name: itemName, price: null, note: categoryName });
+}
+
+function addCustomGrocery(catId, categoryName) {
+  const input = document.getElementById("custom-" + catId);
+  const text = input.value.trim();
+  if (!text) return showToast("Type an item first.");
+  addToCart({ service: "grocery", name: text, price: null, note: categoryName });
+  input.value = "";
+}
+
+renderGrocery();
+</script>
+</body>
+</html>

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WarpX — Anything you need, delivered at warp speed</title>
+<meta name="description" content="WarpX is a quick-commerce pickup & drop service for food, grocery, medicine and laundry — built for small towns. Flat ₹20 delivery.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <div class="nav-links" id="navLinks">
+      <a href="index.html">Home</a>
+      <a href="food.html">Food</a>
+      <a href="grocery.html">Grocery</a>
+      <a href="medicine.html">Medicine</a>
+      <a href="laundry.html">Laundry</a>
+      <a href="anything.html">Anything Else</a>
+    </div>
+    <div class="nav-actions">
+      <button class="icon-btn" data-open-cart aria-label="Cart">
+        🛒<span class="cart-count" data-cart-count style="display:none;">0</span>
+      </button>
+      <a href="login.html" class="btn btn-primary btn-sm hide-mobile">Login</a>
+      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container hero-inner">
+    <span class="eyebrow">⚡ Quick commerce, built for small towns</span>
+    <h1>Anything you need, delivered at warp speed.</h1>
+    <p class="lead">Food, grocery, medicine, laundry — or something we haven't listed. Tell us what you want picked up or dropped off, anywhere in town, and we'll warp it to your door.</p>
+    <div class="hero-ctas">
+      <a href="login.html" class="btn btn-lime">Get started</a>
+      <a href="#services" class="btn btn-outline" style="border-color:rgba(255,255,255,.4);color:#fff;">Explore services</a>
+    </div>
+    <div class="hero-stats">
+      <div class="hero-stat"><b>₹20</b><span>Flat delivery fee, town-wide</span></div>
+      <div class="hero-stat"><b>15–21.92 km²</b><span>Current service area</span></div>
+      <div class="hero-stat"><b>4 + 1</b><span>Core services, plus anything else</span></div>
+    </div>
+  </div>
+</header>
+
+<section class="section" id="about">
+  <div class="container">
+    <div class="grid grid-2" style="align-items:center;gap:56px;">
+      <div>
+        <span class="eyebrow">About WarpX</span>
+        <h2>Your town's everything app, minus the wait.</h2>
+        <p>WarpX is a hyperlocal pickup-and-drop service built specifically for small towns — not a scaled-down version of a big-city app, but one designed around how a compact town actually works: short distances, familiar landmarks, and things people need in minutes, not hours.</p>
+        <p>We run four dedicated services — <b>food from Picasso Cafe</b>, <b>grocery</b>, <b>medicine</b>, and <b>laundry</b> — each with its own page so ordering never feels cluttered. And because no catalog covers everything a town needs, every service also has a simple custom box: if it's not listed, just write it down and we'll get it delivered anyway.</p>
+        <div class="chip-row" style="margin-top:24px;">
+          <span class="chip">🍽️ Food pickup & delivery</span>
+          <span class="chip">🥬 Grocery, any item</span>
+          <span class="chip">💊 Medicine, prescription optional</span>
+          <span class="chip">🧺 Laundry pickup & drop</span>
+        </div>
+      </div>
+      <div class="card" style="padding:32px;">
+        <h3 style="margin-bottom:18px;">Why it works for a small town</h3>
+        <div style="display:flex;flex-direction:column;gap:18px;">
+          <div class="flex gap-12">
+            <div class="service-icon" style="background:var(--grad-warp-soft);color:var(--violet);flex-shrink:0;">📍</div>
+            <div><b>Short hops, fast delivery.</b><p class="mb-0">Our whole coverage area spans 15–21.92 km² — small enough that "warp speed" is a realistic promise, not a slogan.</p></div>
+          </div>
+          <div class="flex gap-12">
+            <div class="service-icon" style="background:var(--grad-warp-soft);color:var(--violet);flex-shrink:0;">💸</div>
+            <div><b>One flat fee.</b><p class="mb-0">₹20 delivery on every order, every service — no surge pricing, no distance slabs.</p></div>
+          </div>
+          <div class="flex gap-12">
+            <div class="service-icon" style="background:var(--grad-warp-soft);color:var(--violet);flex-shrink:0;">✍️</div>
+            <div><b>If it's not on the menu, just ask.</b><p class="mb-0">Every page has a custom-request box — write what you need and we'll source it.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="services" style="background:var(--surface-2);">
+  <div class="container">
+    <div class="section-head center">
+      <span class="eyebrow">What can we get you?</span>
+      <h2>Pick a service to get started</h2>
+      <p>Every service works the same way: browse or type what you need, add it, and check out. Pickup and drop-off both available.</p>
+    </div>
+    <div class="grid grid-5">
+      <a href="food.html" class="service-card svc-food">
+        <div class="service-icon">🍽️</div>
+        <h3>Food</h3>
+        <p>Picasso Cafe's full menu — cold brews, mocktails, shakes, coffees & munchies.</p>
+        <span class="go">Order food →</span>
+      </a>
+      <a href="grocery.html" class="service-card svc-grocery">
+        <div class="service-icon">🥬</div>
+        <h3>Grocery</h3>
+        <p>Vegetables, grains, dairy, daily needs — pick a category and tell us what you want.</p>
+        <span class="go">Shop grocery →</span>
+      </a>
+      <a href="medicine.html" class="service-card svc-medicine">
+        <div class="service-icon">💊</div>
+        <h3>Medicine</h3>
+        <p>List what you need, upload a prescription if you have one — completely optional.</p>
+        <span class="go">Order medicine →</span>
+      </a>
+      <a href="laundry.html" class="service-card svc-laundry">
+        <div class="service-icon">🧺</div>
+        <h3>Laundry</h3>
+        <p>Wash & fold, dry clean, ironing — scheduled pickup and drop-off.</p>
+        <span class="go">Book laundry →</span>
+      </a>
+      <a href="anything.html" class="service-card svc-anything">
+        <div class="service-icon">✨</div>
+        <h3>Anything else</h3>
+        <p>Not on any list? Just tell us what you need — we'll get it delivered.</p>
+        <span class="go">Ask for anything →</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="how">
+  <div class="container">
+    <div class="section-head center">
+      <span class="eyebrow">How it works</span>
+      <h2>Three steps, zero hassle</h2>
+    </div>
+    <div class="grid grid-3">
+      <div class="card" style="padding:28px;">
+        <div class="badge badge-lime" style="margin-bottom:14px;">Step 1</div>
+        <h3>Tell us what you need</h3>
+        <p>Pick items from a service page, or drop a note in the custom box if it isn't listed.</p>
+      </div>
+      <div class="card" style="padding:28px;">
+        <div class="badge badge-lime" style="margin-bottom:14px;">Step 2</div>
+        <h3>We pick it up</h3>
+        <p>From Picasso Cafe, a local store, a pharmacy, or wherever it needs to come from.</p>
+      </div>
+      <div class="card" style="padding:28px;">
+        <div class="badge badge-lime" style="margin-bottom:14px;">Step 3</div>
+        <h3>It warps to your door</h3>
+        <p>Flat ₹20 delivery, anywhere within our service area. That's it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top:0;">
+  <div class="container">
+    <div style="background:var(--grad-warp);border-radius:var(--radius-lg);padding:52px 40px;text-align:center;color:#fff;">
+      <h2 style="color:#fff;">Ready to order at warp speed?</h2>
+      <p style="color:rgba(255,255,255,.85);max-width:480px;margin:0 auto 24px;">Set your location once at login and every order after that is a couple of taps.</p>
+      <a href="login.html" class="btn btn-lime">Login / Sign up</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="brand" style="color:#fff;margin-bottom:10px;"><span class="brand-mark">W</span>WarpX</div>
+        <p>Anything you need, delivered at warp speed. Pickup & drop for food, grocery, medicine and laundry — built for small towns.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="food.html">Picasso Cafe</a>
+        <a href="grocery.html">Grocery</a>
+        <a href="medicine.html">Medicine</a>
+        <a href="laundry.html">Laundry</a>
+        <a href="anything.html">Anything Else</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="index.html#about">About</a>
+        <a href="index.html#how">How it works</a>
+        <a href="login.html">Login / Sign up</a>
+      </div>
+      <div>
+        <h4>Delivery</h4>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Flat ₹20 delivery fee</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Pickup & drop, both ways</span>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 WarpX. A quick-commerce demo for small towns.</span>
+      <div class="footer-stats">
+        <span>⚡ Warp speed delivery</span>
+        <span>₹20 flat fee</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="js/cart.js"></script>
+<script src="js/location.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

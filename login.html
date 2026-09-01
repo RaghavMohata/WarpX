@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login | WarpX</title>
+<meta name="description" content="Login or sign up to WarpX and set your delivery location — precise, without ever typing a coordinate.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <div class="nav-links" id="navLinks">
+      <a href="index.html">Home</a>
+      <a href="food.html">Food</a>
+      <a href="grocery.html">Grocery</a>
+      <a href="medicine.html">Medicine</a>
+      <a href="laundry.html">Laundry</a>
+      <a href="anything.html">Anything Else</a>
+    </div>
+    <div class="nav-actions">
+      <button class="icon-btn" data-open-cart aria-label="Cart">
+        🛒<span class="cart-count" data-cart-count style="display:none;">0</span>
+      </button>
+      <a href="login.html" class="btn btn-primary btn-sm hide-mobile">Login</a>
+      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</nav>
+
+<header class="page-hero ph-login">
+  <div class="container">
+    <span class="badge badge-lime" style="margin-bottom:12px;">👋 Welcome</span>
+    <h1 style="color:#fff;">Login or create your account</h1>
+    <p>One quick step — tell us who you are, and where to deliver.</p>
+  </div>
+</header>
+
+<section class="section">
+  <div class="container">
+    <div class="grid grid-2" style="gap:32px;align-items:start;">
+
+      <!-- LEFT: account -->
+      <div class="card" style="padding:32px;">
+        <div class="segmented" id="authSeg" style="margin-bottom:22px;">
+          <button type="button" class="active" data-val="login">Login</button>
+          <button type="button" data-val="signup">Sign up</button>
+        </div>
+
+        <div class="field" id="nameField" style="display:none;">
+          <label for="authName">Your name</label>
+          <input type="text" id="authName" placeholder="e.g. Priya Sharma">
+        </div>
+        <div class="field">
+          <label for="authPhone">Mobile number</label>
+          <input type="tel" id="authPhone" placeholder="10-digit mobile number">
+        </div>
+        <div class="field">
+          <label for="authOtp">OTP</label>
+          <div class="input-row">
+            <input type="text" id="authOtp" placeholder="Enter OTP" maxlength="6">
+            <button class="btn btn-ghost" style="flex:0 0 auto;" onclick="showToast('Demo OTP: 1234 (no SMS actually sent)')">Send OTP</button>
+          </div>
+          <p class="hint">This is a demo — any 4 digits will work.</p>
+        </div>
+        <div class="divider"></div>
+        <p class="text-muted" style="font-size:.85rem;">Set your delivery location on the right, then continue below.</p>
+      </div>
+
+      <!-- RIGHT: location -->
+      <div class="card" style="padding:32px;">
+        <h3 style="margin-bottom:4px;">Set your delivery location</h3>
+        <p class="text-muted" style="font-size:.88rem;">Precise coordinates matter — they're how we check you're inside our delivery zone. You'll never have to type or read one.</p>
+
+        <div class="chip-row" style="margin-bottom:18px;">
+          <button class="btn btn-primary btn-sm" onclick="useGps()">📍 Use my current location</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleLandmarks()">🏙️ Pick my area instead</button>
+        </div>
+
+        <div id="gpsStatus"></div>
+
+        <div class="map-mock" id="mapMock">
+          <div class="map-store" id="mapStore" title="WarpX dark store"></div>
+          <div id="zoneRings"></div>
+          <div class="map-pin" id="mapPin" style="display:none;">📍</div>
+          <div class="map-hint">Tap the map, or drag the pin, to fine-tune your spot</div>
+        </div>
+
+        <div id="landmarkPanel" style="display:none;margin-top:16px;">
+          <div class="landmark-list" id="landmarkList"></div>
+        </div>
+
+        <div class="field" style="margin-top:16px;">
+          <label for="addressNote">Landmark / house no. / street (optional)</label>
+          <input type="text" id="addressNote" placeholder="e.g. Near Sharma Sweets, House #12, Blue Gate">
+        </div>
+
+        <div id="zoneResult"></div>
+
+        <button class="btn btn-primary btn-block" style="margin-top:18px;" onclick="completeLogin()">Continue</button>
+      </div>
+
+    </div>
+
+    <div class="note-box" style="margin-top:32px;">
+      <div style="font-size:1.3rem;">🤔</div>
+      <div>
+        <b>Why not just ask for an address?</b>
+        <p>A typed address is ambiguous for delivery routing in a small town where many streets share names or have none. Raw GPS coordinates are precise but meaningless to type or read. So WarpX gets the precise part from your phone's GPS automatically (one tap, no numbers shown), lets you nudge a pin if it's slightly off, and offers a landmark list for anyone who'd rather not share GPS at all — the address/landmark note is then just extra context for the delivery partner, not the source of truth for the zone check.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="brand" style="color:#fff;margin-bottom:10px;"><span class="brand-mark">W</span>WarpX</div>
+        <p>Anything you need, delivered at warp speed.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="food.html">Picasso Cafe</a>
+        <a href="grocery.html">Grocery</a>
+        <a href="medicine.html">Medicine</a>
+        <a href="laundry.html">Laundry</a>
+        <a href="anything.html">Anything Else</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="index.html#about">About</a>
+        <a href="index.html#how">How it works</a>
+        <a href="login.html">Login / Sign up</a>
+      </div>
+      <div>
+        <h4>Delivery</h4>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Flat ₹20 delivery fee</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 WarpX. A quick-commerce demo for small towns.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="js/cart.js"></script>
+<script src="js/location.js"></script>
+<script src="js/main.js"></script>
+<script>
+document.getElementById("authSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#authSeg button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  document.getElementById("nameField").style.display = btn.dataset.val === "signup" ? "block" : "none";
+});
+
+let currentLoc = null; // {lat, lng, accuracy, method}
+
+function renderZoneRings() {
+  const coreDia = (ZONE_CORE_KM / MAP_HALF_SPAN_KM) * 100;
+  const extDia = (ZONE_EXT_KM / MAP_HALF_SPAN_KM) * 100;
+  document.getElementById("zoneRings").innerHTML = `
+    <div class="map-zone" style="left:50%;top:50%;width:${extDia}%;height:${extDia}%;"></div>
+    <div class="map-zone" style="left:50%;top:50%;width:${coreDia}%;height:${coreDia}%;border-style:solid;border-color:rgba(109,40,217,.5);"></div>
+  `;
+}
+renderZoneRings();
+
+function clampPct(v) { return Math.max(3, Math.min(97, v)); }
+
+function placePin(lat, lng) {
+  const { xPct, yPct } = latlngToPct(lat, lng);
+  const pin = document.getElementById("mapPin");
+  pin.style.left = clampPct(xPct) + "%";
+  pin.style.top = clampPct(yPct) + "%";
+  pin.style.display = "block";
+}
+
+function setLocation(loc) {
+  currentLoc = loc;
+  placePin(loc.lat, loc.lng);
+  renderZoneResult();
+}
+
+function renderZoneResult() {
+  const el = document.getElementById("zoneResult");
+  if (!currentLoc) { el.innerHTML = ""; return; }
+  const z = classifyZone(currentLoc.lat, currentLoc.lng);
+  if (z.zone === "out") {
+    el.innerHTML = `<div class="zone-result out"><span class="zi">🛰️</span><div><b>Just outside our current warp zone</b><p class="mb-0">You're about ${z.distanceKm.toFixed(1)} km from our nearest store — a little beyond our ${ZONE_EXT_KM} km delivery radius today. You can still continue; we'll let you know if we can reach you.</p></div></div>`;
+  } else {
+    const label = z.zone === "core" ? "Prime warp zone" : "Extended zone";
+    el.innerHTML = `<div class="zone-result in"><span class="zi">⚡</span><div><b>${label} — you're covered!</b><p class="mb-0">~${z.distanceKm.toFixed(1)} km from our store. Estimated delivery: <b>${z.etaMin} min</b>.</p></div></div>`;
+  }
+}
+
+function useGps() {
+  const status = document.getElementById("gpsStatus");
+  status.innerHTML = `<p class="text-muted" style="font-size:.85rem;">Locating you…</p>`;
+  requestPreciseLocation(
+    (loc) => {
+      status.innerHTML = `<div class="badge badge-success" style="margin-bottom:12px;">Location captured · accuracy ~${loc.accuracy}m</div>`;
+      setLocation(loc);
+      document.getElementById("landmarkPanel").style.display = "none";
+    },
+    (msg) => {
+      status.innerHTML = `<div class="badge badge-warn" style="margin-bottom:12px;">${msg}</div>`;
+    }
+  );
+}
+
+function toggleLandmarks() {
+  const panel = document.getElementById("landmarkPanel");
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+  if (panel.style.display === "block" && !panel.dataset.built) {
+    panel.dataset.built = "1";
+    const list = document.getElementById("landmarkList");
+    list.innerHTML = LANDMARKS.map((lm, i) => {
+      const pos = offsetFromStore(lm.dxKm, lm.dyKm);
+      const dist = haversineKm(pos.lat, pos.lng, DARK_STORE.lat, DARK_STORE.lng).toFixed(1);
+      return `<div class="landmark-item" data-i="${i}" onclick="pickLandmark(${i})">
+        <span>${lm.name}<small>${lm.area} · ~${dist} km from store</small></span>
+        <span>›</span>
+      </div>`;
+    }).join("");
+  }
+}
+
+function pickLandmark(i) {
+  const lm = LANDMARKS[i];
+  const pos = offsetFromStore(lm.dxKm, lm.dyKm);
+  document.querySelectorAll(".landmark-item").forEach((el) => el.classList.remove("active"));
+  document.querySelector(`.landmark-item[data-i="${i}"]`).classList.add("active");
+  document.getElementById("gpsStatus").innerHTML = `<div class="badge badge-success" style="margin-bottom:12px;">Area selected: ${lm.name}</div>`;
+  setLocation({ lat: pos.lat, lng: pos.lng, method: "landmark", accuracy: null });
+}
+
+// Click-to-place-pin and drag-to-adjust on the mock map
+const mapMock = document.getElementById("mapMock");
+const mapPin = document.getElementById("mapPin");
+
+mapMock.addEventListener("click", (e) => {
+  if (e.target === mapPin) return;
+  const rect = mapMock.getBoundingClientRect();
+  const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+  const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+  const ll = pctToLatLng(xPct, yPct);
+  document.getElementById("gpsStatus").innerHTML = `<div class="badge badge-success" style="margin-bottom:12px;">Pin dropped manually</div>`;
+  setLocation({ lat: ll.lat, lng: ll.lng, method: "manual-pin", accuracy: null });
+});
+
+let dragging = false;
+mapPin.addEventListener("pointerdown", (e) => { dragging = true; e.stopPropagation(); });
+window.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  const rect = mapMock.getBoundingClientRect();
+  let xPct = ((e.clientX - rect.left) / rect.width) * 100;
+  let yPct = ((e.clientY - rect.top) / rect.height) * 100;
+  xPct = clampPct(xPct); yPct = clampPct(yPct);
+  mapPin.style.left = xPct + "%";
+  mapPin.style.top = yPct + "%";
+  const ll = pctToLatLng(xPct, yPct);
+  currentLoc = { lat: ll.lat, lng: ll.lng, method: "manual-pin", accuracy: null };
+  renderZoneResult();
+});
+window.addEventListener("pointerup", () => { dragging = false; });
+
+function completeLogin() {
+  const phone = document.getElementById("authPhone").value.trim();
+  if (!phone) return showToast("Enter your mobile number first.");
+  if (!currentLoc) return showToast("Set a delivery location first.");
+
+  const name = document.getElementById("authName").value.trim();
+  const address = document.getElementById("addressNote").value.trim();
+
+  localStorage.setItem("warpx_user", JSON.stringify({ name, phone }));
+  const saved = saveLocation({ ...currentLoc, address });
+
+  const zoneMsg = saved.zone === "out" ? "outside our current zone" : `in our ${saved.zone} zone (~${saved.etaMin} min delivery)`;
+  showToast(`Welcome${name ? ", " + name : ""}! You're ${zoneMsg}.`);
+  setTimeout(() => { window.location.href = "index.html"; }, 1200);
+}
+
+// Pre-fill from a previously saved location, if any
+(function hydrate() {
+  const saved = getSavedLocation();
+  if (saved) {
+    setLocation(saved);
+    if (saved.address) document.getElementById("addressNote").value = saved.address;
+    document.getElementById("gpsStatus").innerHTML = `<div class="badge badge-muted" style="margin-bottom:12px;">Using your previously saved location</div>`;
+  }
+  const user = JSON.parse(localStorage.getItem("warpx_user") || "null");
+  if (user) {
+    if (user.name) document.getElementById("authName").value = user.name;
+    if (user.phone) document.getElementById("authPhone").value = user.phone;
+  }
+})();
+</script>
+</body>
+</html>

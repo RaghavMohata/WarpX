@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medicine | WarpX</title>
+<meta name="description" content="Order medicine — list what you need and optionally upload a prescription. WarpX delivers at warp speed.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <div class="nav-links" id="navLinks">
+      <a href="index.html">Home</a>
+      <a href="food.html">Food</a>
+      <a href="grocery.html">Grocery</a>
+      <a href="medicine.html">Medicine</a>
+      <a href="laundry.html">Laundry</a>
+      <a href="anything.html">Anything Else</a>
+    </div>
+    <div class="nav-actions">
+      <button class="icon-btn" data-open-cart aria-label="Cart">
+        🛒<span class="cart-count" data-cart-count style="display:none;">0</span>
+      </button>
+      <a href="login.html" class="btn btn-primary btn-sm hide-mobile">Login</a>
+      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</nav>
+
+<header class="page-hero ph-medicine">
+  <div class="container">
+    <span class="badge badge-lime" style="margin-bottom:12px;">💊 Medicine · Pickup & Delivery</span>
+    <h1 style="color:#fff;">Medicine</h1>
+    <p>Tell us what you need. A prescription helps but isn't required — our partner pharmacist will call to confirm anything that needs one.</p>
+  </div>
+</header>
+
+<section class="section">
+  <div class="container" style="max-width:760px;">
+
+    <div class="card" style="padding:32px;margin-bottom:24px;">
+      <h3>Patient & contact details</h3>
+      <div class="input-row">
+        <div class="field">
+          <label for="medPatient">Patient name</label>
+          <input type="text" id="medPatient" placeholder="Who is this for?">
+        </div>
+        <div class="field">
+          <label for="medPhone">Contact number</label>
+          <input type="tel" id="medPhone" placeholder="10-digit mobile number">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>How urgent is this?</label>
+        <div class="segmented" id="urgencySeg">
+          <button type="button" class="active" data-val="Normal">Normal</button>
+          <button type="button" data-val="Urgent">Urgent</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:32px;margin-bottom:24px;">
+      <h3>What do you need?</h3>
+      <p class="text-muted">List medicines, dosage or quantity — one per line is fine. Not sure of exact names? Describe the symptom or what it's for.</p>
+      <div class="field">
+        <textarea id="medList" placeholder="e.g.&#10;Paracetamol 500mg - 1 strip&#10;Cough syrup for dry cough&#10;Bandage roll, antiseptic cream"></textarea>
+      </div>
+
+      <div class="field">
+        <div class="row-between" style="margin-bottom:7px;">
+          <label style="margin:0;">Upload prescription</label>
+          <span class="badge badge-muted">Optional</span>
+        </div>
+        <div class="dropzone" id="dropzone" onclick="document.getElementById('rxFile').click()">
+          <input type="file" id="rxFile" accept="image/*,.pdf">
+          <div class="dz-icon">📄</div>
+          <div><b>Click to upload</b> or drag a photo/PDF of your prescription here</div>
+          <p class="hint mb-0">No prescription? Skip this — just describe what you need above.</p>
+        </div>
+        <div id="rxPreview" style="margin-top:12px;"></div>
+      </div>
+
+      <div class="field">
+        <label for="medNote">Delivery note (optional)</label>
+        <input type="text" id="medNote" placeholder="e.g. Call before arriving, leave with security guard">
+      </div>
+
+      <button class="btn btn-primary btn-block" onclick="addMedicineRequest()">Add to order</button>
+    </div>
+
+    <div class="note-box">
+      <div style="font-size:1.3rem;">🔒</div>
+      <div>
+        <b>Your information stays private</b>
+        <p>Prescription details are shared only with the pharmacist fulfilling your order, never stored beyond that.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="brand" style="color:#fff;margin-bottom:10px;"><span class="brand-mark">W</span>WarpX</div>
+        <p>Anything you need, delivered at warp speed.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="food.html">Picasso Cafe</a>
+        <a href="grocery.html">Grocery</a>
+        <a href="medicine.html">Medicine</a>
+        <a href="laundry.html">Laundry</a>
+        <a href="anything.html">Anything Else</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="index.html#about">About</a>
+        <a href="index.html#how">How it works</a>
+        <a href="login.html">Login / Sign up</a>
+      </div>
+      <div>
+        <h4>Delivery</h4>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Flat ₹20 delivery fee</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 WarpX. A quick-commerce demo for small towns.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="js/cart.js"></script>
+<script src="js/location.js"></script>
+<script src="js/main.js"></script>
+<script>
+let urgency = "Normal";
+document.getElementById("urgencySeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#urgencySeg button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  urgency = btn.dataset.val;
+});
+
+let rxFileName = null;
+const dropzone = document.getElementById("dropzone");
+const rxFileInput = document.getElementById("rxFile");
+rxFileInput.addEventListener("change", handleRxFile);
+["dragover", "dragenter"].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add("drag"); }));
+["dragleave", "drop"].forEach((ev) => dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove("drag"); }));
+dropzone.addEventListener("drop", (e) => {
+  if (e.dataTransfer.files.length) {
+    rxFileInput.files = e.dataTransfer.files;
+    handleRxFile();
+  }
+});
+
+function handleRxFile() {
+  const file = rxFileInput.files[0];
+  if (!file) return;
+  rxFileName = file.name;
+  const preview = document.getElementById("rxPreview");
+  if (file.type.startsWith("image/")) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      preview.innerHTML = `<div class="flex items-center gap-12"><img src="${e.target.result}" style="width:64px;height:64px;object-fit:cover;border-radius:10px;"><div><b>${file.name}</b><br><span class="badge badge-success">Attached ✓</span></div></div>`;
+    };
+    reader.readAsDataURL(file);
+  } else {
+    preview.innerHTML = `<div class="flex items-center gap-12"><div style="font-size:1.6rem;">📎</div><div><b>${file.name}</b><br><span class="badge badge-success">Attached ✓</span></div></div>`;
+  }
+}
+
+function addMedicineRequest() {
+  const patient = document.getElementById("medPatient").value.trim();
+  const phone = document.getElementById("medPhone").value.trim();
+  const list = document.getElementById("medList").value.trim();
+  const note = document.getElementById("medNote").value.trim();
+
+  if (!list) return showToast("List at least one medicine or need first.");
+  if (!phone) return showToast("A contact number helps the pharmacist reach you.");
+
+  const parts = [];
+  if (patient) parts.push(`For: ${patient}`);
+  parts.push(`Contact: ${phone}`);
+  parts.push(`Urgency: ${urgency}`);
+  if (rxFileName) parts.push(`Prescription: ${rxFileName} (attached)`);
+  if (note) parts.push(`Note: ${note}`);
+
+  addToCart({
+    service: "medicine",
+    name: list.split("\n")[0].slice(0, 40) + (list.includes("\n") || list.length > 40 ? "…" : ""),
+    price: null,
+    note: parts.join(" · "),
+  });
+}
+</script>
+</body>
+</html>

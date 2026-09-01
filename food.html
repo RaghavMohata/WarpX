@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Food — Picasso Cafe | WarpX</title>
+<meta name="description" content="Order from Picasso Cafe's full menu — cold brews, mocktails, shakes, coffees and munchies — delivered at warp speed.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <div class="nav-links" id="navLinks">
+      <a href="index.html">Home</a>
+      <a href="food.html">Food</a>
+      <a href="grocery.html">Grocery</a>
+      <a href="medicine.html">Medicine</a>
+      <a href="laundry.html">Laundry</a>
+      <a href="anything.html">Anything Else</a>
+    </div>
+    <div class="nav-actions">
+      <button class="icon-btn" data-open-cart aria-label="Cart">
+        🛒<span class="cart-count" data-cart-count style="display:none;">0</span>
+      </button>
+      <a href="login.html" class="btn btn-primary btn-sm hide-mobile">Login</a>
+      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</nav>
+
+<header class="page-hero ph-food">
+  <div class="container">
+    <span class="badge badge-lime" style="margin-bottom:12px;">🍽️ Food · Pickup & Delivery</span>
+    <h1 style="color:#fff;">Picasso Cafe</h1>
+    <p>Cold brews, mocktails, munchies, shakes and speciality coffees — Picasso Cafe's full menu, delivered straight to you.</p>
+  </div>
+</header>
+
+<section class="section">
+  <div class="container">
+    <div class="note-box" style="margin-bottom:36px;">
+      <div style="font-size:1.3rem;">✍️</div>
+      <div>
+        <b>Craving something not on this menu?</b>
+        <p>Use the custom request box below — tell us the dish or drink and Picasso's team will let you know if they can make it.</p>
+      </div>
+    </div>
+
+    <div id="menuContainer"></div>
+
+    <div class="card" style="padding:28px;margin-top:20px;">
+      <h3>Something else from Picasso Cafe?</h3>
+      <p class="text-muted">Describe it and we'll add it to your order — price gets confirmed at pickup.</p>
+      <div class="field">
+        <label for="customFoodInput">What would you like?</label>
+        <textarea id="customFoodInput" placeholder="e.g. Extra spicy nachos with jalapenos, or a birthday note on the cup"></textarea>
+      </div>
+      <button class="btn btn-primary" onclick="addCustomFood()">Add to order</button>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="brand" style="color:#fff;margin-bottom:10px;"><span class="brand-mark">W</span>WarpX</div>
+        <p>Anything you need, delivered at warp speed.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="food.html">Picasso Cafe</a>
+        <a href="grocery.html">Grocery</a>
+        <a href="medicine.html">Medicine</a>
+        <a href="laundry.html">Laundry</a>
+        <a href="anything.html">Anything Else</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="index.html#about">About</a>
+        <a href="index.html#how">How it works</a>
+        <a href="login.html">Login / Sign up</a>
+      </div>
+      <div>
+        <h4>Delivery</h4>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Flat ₹20 delivery fee</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 WarpX. A quick-commerce demo for small towns.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="js/menu-data.js"></script>
+<script src="js/cart.js"></script>
+<script src="js/location.js"></script>
+<script src="js/main.js"></script>
+<script>
+function renderMenu() {
+  const container = document.getElementById("menuContainer");
+  container.innerHTML = PICASSO_MENU.map((cat) => `
+    <div class="menu-cat">
+      <div class="menu-cat-title">
+        <span style="font-size:1.4rem;">${cat.icon}</span>
+        <h3>${cat.category}</h3>
+        <div class="line"></div>
+      </div>
+      ${cat.items.map((item) => `
+        <div class="menu-item">
+          <div>
+            <div class="menu-item-name">${item.name}</div>
+            ${item.note ? `<p class="menu-item-note">${item.note}</p>` : ""}
+            ${item.moq ? `<p class="menu-item-note">Minimum order: ${item.moq}</p>` : ""}
+            ${item.tag ? `<div class="menu-item-tags"><span class="badge badge-warn">${item.tag}</span></div>` : ""}
+          </div>
+          <div class="menu-item-right">
+            <span class="price">₹${item.price}</span>
+            <button class="add-btn" onclick='addFoodItem(${JSON.stringify(item.name)}, ${item.price}, ${item.moq || 1})'>Add</button>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `).join("");
+}
+
+function addFoodItem(name, price, moq) {
+  addToCart({ service: "food", name, price, qty: moq || 1 });
+}
+
+function addCustomFood() {
+  const input = document.getElementById("customFoodInput");
+  const text = input.value.trim();
+  if (!text) return showToast("Type what you'd like first.");
+  addToCart({ service: "food", name: "Custom cafe request", price: null, note: text });
+  input.value = "";
+}
+
+renderMenu();
+</script>
+</body>
+</html>

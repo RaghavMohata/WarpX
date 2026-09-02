@@ -47,6 +47,7 @@ python3 -m http.server 8080
 | `anything.html` | The core "just write it" freeform request page (delivery *or* pickup-and-drop between two places) |
 | `login.html` | Login/signup + the smart location capture flow (see below) |
 | `orders.html` | Order history for the logged-in user, read live from the database |
+| `admin.html` | **Owner dashboard** — see below |
 
 Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page navigation before checkout. Once you log in or place an order, that data is also written to `warpx.db` via the API in `server.js` — `localStorage` is now just a client-side cache (and the offline fallback), not the source of truth.
 
@@ -60,9 +61,21 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `POST /api/users/:id/location` | Save a captured location; computes and returns the delivery zone/ETA server-side via `lib/zone.js` |
 | `GET /api/users/:id/location` | Fetch a user's most recent saved location |
 | `POST /api/orders` | Place an order — computes totals server-side, persists the order + line items |
-| `GET /api/orders/:userId` | Order history for a user, items included |
+| `GET /api/orders/:userId` | Order history for a single user, items included |
+| `GET /api/orders` | **All** orders across every customer, newest first — powers `admin.html` |
+| `PATCH /api/orders/:id/status` | Update an order's status (`placed` → `preparing` → `out for delivery` → `delivered`) |
 
 `lib/zone.js` is a server-side port of the Haversine/zone logic in `js/location.js` — the browser copy is for instant map feedback before you submit; the server copy is what actually gets stored, so it's the source of truth.
+
+## How you find out an order was placed
+
+`orders.html` only shows a *customer's own* history — it's not for you. **`admin.html`** is the owner's view: it polls `GET /api/orders` every 5 seconds, plays a short beep and pops a toast the moment a new order appears, and shows full customer contact info (name/phone) plus items so you can act on it. Click through the status buttons on each order (`placed → preparing → out for delivery → delivered`) as you work it.
+
+To use it: open `admin.html`, enter the PIN (**`1234`** by default), and just leave that tab open on a phone, tablet, or spare monitor at the counter — that's genuinely how small businesses run these on Swiggy/Zomato-style tablets.
+
+A few honest caveats:
+- **This is polling, not push.** It checks every 5 seconds while the tab is open — there's no notification if you close the tab or aren't looking at it. A phone push notification or SMS alert would need a real backend service (e.g. Twilio, or a push provider) — a bigger step than this project takes on.
+- **The PIN is a deterrent, not real security.** It's a hardcoded value checked in the page's own JavaScript (`ADMIN_PIN` in `admin.html`) — anyone who reads the page source can see it. Change it before showing this to anyone, and don't rely on it to protect real customer data. Proper access control needs real authentication.
 
 ## Delivery model
 

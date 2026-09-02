@@ -78,12 +78,34 @@ app.post("/api/orders", (req, res) => {
   res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, status: "placed" });
 });
 
-// Order history for a user.
+// All orders across all customers — for the owner's dashboard (admin.html).
+app.get("/api/orders", (req, res) => {
+  const orders = db
+    .prepare(
+      `SELECT orders.*, users.name AS customer_name, users.phone AS customer_phone
+       FROM orders LEFT JOIN users ON users.id = orders.user_id
+       ORDER BY orders.id DESC`
+    )
+    .all();
+  const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
+  res.json(orders.map((o) => ({ ...o, items: itemsStmt.all(o.id) })));
+});
+
+// Order history for a single user.
 app.get("/api/orders/:userId", (req, res) => {
   const userId = Number(req.params.userId);
   const orders = db.prepare("SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC").all(userId);
   const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
   res.json(orders.map((o) => ({ ...o, items: itemsStmt.all(o.id) })));
+});
+
+// Update an order's status (owner dashboard use).
+app.patch("/api/orders/:id/status", (req, res) => {
+  const id = Number(req.params.id);
+  const { status } = req.body || {};
+  if (!status) return res.status(400).json({ error: "status is required" });
+  db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, id);
+  res.json({ id, status });
 });
 
 const PORT = process.env.PORT || 3000;

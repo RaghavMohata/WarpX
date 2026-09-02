@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Owner Dashboard | WarpX</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .admin-wrap{ max-width:820px; margin:0 auto; padding:32px 24px 80px; }
+  .live-dot{ width:9px; height:9px; border-radius:50%; background:var(--success); display:inline-block; box-shadow:0 0 0 0 rgba(22,163,74,.6); animation:pulse 1.8s infinite; }
+  @keyframes pulse{ 0%{ box-shadow:0 0 0 0 rgba(22,163,74,.5); } 70%{ box-shadow:0 0 0 8px rgba(22,163,74,0); } 100%{ box-shadow:0 0 0 0 rgba(22,163,74,0); } }
+  .order-new{ border-color:var(--violet) !important; box-shadow:0 0 0 3px var(--grad-warp-soft); }
+  .status-row{ display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .status-btn{ font-size:.75rem; padding:6px 12px; border-radius:var(--radius-pill); border:1.5px solid var(--line-strong); background:var(--surface); cursor:pointer; font-weight:600; }
+  .status-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  #pinScreen{ min-height:80vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+</style>
+</head>
+<body>
+
+<div id="pinScreen">
+  <div class="card" style="padding:36px;max-width:340px;width:100%;text-align:center;">
+    <div style="font-size:2rem;margin-bottom:10px;">🔐</div>
+    <h3>Owner Dashboard</h3>
+    <p class="text-muted" style="font-size:.88rem;">Enter the owner PIN to view incoming orders.</p>
+    <input type="password" id="pinInput" placeholder="PIN" style="text-align:center;letter-spacing:.2em;margin-bottom:14px;" autofocus>
+    <button class="btn btn-primary btn-block" onclick="tryUnlock()">Unlock</button>
+    <p class="hint" style="margin-top:14px;">Default PIN is <code>1234</code> — change ADMIN_PIN in this file before using this for real.</p>
+  </div>
+</div>
+
+<div class="admin-wrap" id="dashboard" style="display:none;">
+  <div class="row-between" style="margin-bottom:24px;flex-wrap:wrap;gap:12px;">
+    <div>
+      <h2 style="margin-bottom:4px;"><span class="live-dot"></span>&nbsp; Owner Dashboard</h2>
+      <p class="text-muted mb-0" style="font-size:.85rem;">Checking for new orders every 5 seconds. Keep this tab open.</p>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost btn-sm" onclick="toggleSound()"><span id="soundLabel">🔊 Sound on</span></button>
+      <button class="btn btn-outline btn-sm" onclick="loadOrders(true)">↻ Refresh now</button>
+    </div>
+  </div>
+
+  <div id="ordersList"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const ADMIN_PIN = "1234"; // change this before using this for anything real
+const SEEN_KEY = "warpx_admin_seen_ids";
+const SOUND_KEY = "warpx_admin_sound";
+let soundOn = localStorage.getItem(SOUND_KEY) !== "off";
+
+function tryUnlock() {
+  const val = document.getElementById("pinInput").value;
+  if (val === ADMIN_PIN) {
+    sessionStorage.setItem("warpx_admin_unlocked", "1");
+    document.getElementById("pinScreen").style.display = "none";
+    document.getElementById("dashboard").style.display = "block";
+    startPolling();
+  } else {
+    showToast("Wrong PIN.");
+  }
+}
+document.getElementById("pinInput").addEventListener("keydown", (e) => { if (e.key === "Enter") tryUnlock(); });
+
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+function toggleSound() {
+  soundOn = !soundOn;
+  localStorage.setItem(SOUND_KEY, soundOn ? "on" : "off");
+  document.getElementById("soundLabel").textContent = soundOn ? "🔊 Sound on" : "🔇 Sound off";
+}
+document.getElementById("soundLabel").textContent = soundOn ? "🔊 Sound on" : "🔇 Sound off";
+
+function beep() {
+  if (!soundOn) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [880, 1180].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = freq;
+      osc.type = "sine";
+      gain.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.16);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.16 + 0.15);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime + i * 0.16);
+      osc.stop(ctx.currentTime + i * 0.16 + 0.15);
+    });
+  } catch (e) {}
+}
+
+function getSeenIds() {
+  try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY)) || []); }
+  catch (e) { return new Set(); }
+}
+function saveSeenIds(set) {
+  localStorage.setItem(SEEN_KEY, JSON.stringify([...set]));
+}
+
+const STATUS_STEPS = ["placed", "preparing", "out for delivery", "delivered"];
+let firstLoad = true;
+
+async function loadOrders(manual) {
+  try {
+    const res = await fetch("/api/orders");
+    if (!res.ok) throw new Error("failed");
+    const orders = await res.json();
+
+    const seen = getSeenIds();
+    const newOnes = orders.filter((o) => !seen.has(o.id));
+
+    if (!firstLoad && newOnes.length > 0) {
+      beep();
+      showToast(`⚡ ${newOnes.length} new order${newOnes.length > 1 ? "s" : ""} just came in!`);
+    }
+
+    const list = document.getElementById("ordersList");
+    if (orders.length === 0) {
+      list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">📭</div><h3>No orders yet</h3><p class="text-muted mb-0">They'll show up here the moment someone checks out.</p></div>`;
+    } else {
+      list.innerHTML = orders.map((o) => `
+        <div class="card ${!seen.has(o.id) ? "order-new" : ""}" style="padding:22px;margin-bottom:16px;">
+          <div class="row-between" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+            <div>
+              <b>#${esc(o.order_number)}</b> ${!seen.has(o.id) ? '<span class="badge badge-lime">NEW</span>' : ""}
+              <div class="text-muted" style="font-size:.8rem;">${esc(o.created_at)}</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-weight:700;">${esc(o.customer_name || "Guest")}</div>
+              <div class="text-muted" style="font-size:.85rem;">${esc(o.customer_phone || "no phone on file")}</div>
+            </div>
+          </div>
+          <div style="margin:10px 0;">
+            ${o.items.map((it) => `
+              <div class="row-between" style="font-size:.9rem;padding:3px 0;">
+                <span>${it.qty} × ${esc(it.name)}${it.note ? ` <span class="text-muted">(${esc(it.note)})</span>` : ""}</span>
+                <span>${it.price != null ? "₹" + (it.price * it.qty) : "TBC"}</span>
+              </div>`).join("")}
+          </div>
+          <div class="row-between" style="font-weight:700;font-size:.95rem;">
+            <span>Total (₹${o.delivery_fee} delivery incl.)</span>
+            <span>₹${o.total}</span>
+          </div>
+          <div class="status-row">
+            ${STATUS_STEPS.map((s) => `<button class="status-btn ${o.status === s ? "active" : ""}" onclick="setStatus(${o.id},'${s}')">${s}</button>`).join("")}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    orders.forEach((o) => seen.add(o.id));
+    saveSeenIds(seen);
+    firstLoad = false;
+  } catch (err) {
+    if (manual) showToast("Could not reach the server.");
+  }
+}
+
+async function setStatus(orderId, status) {
+  try {
+    await fetch(`/api/orders/${orderId}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    loadOrders();
+  } catch (e) {
+    showToast("Could not update status.");
+  }
+}
+
+function esc(str) {
+  const div = document.createElement("div");
+  div.textContent = str ?? "";
+  return div.innerHTML;
+}
+
+let pollTimer;
+function startPolling() {
+  loadOrders();
+  pollTimer = setInterval(loadOrders, 5000);
+}
+
+// Stay unlocked for the rest of this browser tab session.
+if (sessionStorage.getItem("warpx_admin_unlocked") === "1") {
+  document.getElementById("pinScreen").style.display = "none";
+  document.getElementById("dashboard").style.display = "block";
+  startPolling();
+}
+</script>
+</body>
+</html>

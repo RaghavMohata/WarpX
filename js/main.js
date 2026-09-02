@@ -15,12 +15,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if (href === path || (path === "" && href === "index.html")) a.classList.add("active");
   });
 
-  // Reflect a logged-in user in the nav's login button
+  // Reflect a logged-in user in the nav's login button — once logged in,
+  // this button is "my profile" (order history), not "log in again".
   try {
     const user = JSON.parse(localStorage.getItem("warpx_user"));
     if (user && user.phone) {
       document.querySelectorAll('a.btn[href="login.html"]').forEach((btn) => {
-        btn.textContent = user.name ? `Hi, ${user.name.split(" ")[0]}` : "My account";
+        btn.textContent = user.name ? `👤 ${user.name.split(" ")[0]}` : "👤 My profile";
+        btn.setAttribute("href", "orders.html");
       });
     }
   } catch (e) {}

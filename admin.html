@@ -161,6 +161,18 @@ async function loadOrders(manual) {
     saveSeenIds(seen);
     firstLoad = false;
   } catch (err) {
+    // Never leave the dashboard silently blank — that's indistinguishable
+    // from "broken". Only replace a list that's showing real orders once
+    // we've actually loaded something; a transient poll failure shouldn't
+    // wipe out data already on screen.
+    if (firstLoad) {
+      document.getElementById("ordersList").innerHTML = `
+        <div class="card center" style="padding:48px 24px;">
+          <div style="font-size:2rem;margin-bottom:10px;">🛰️</div>
+          <h3>Can't reach the server</h3>
+          <p class="text-muted mb-0">Make sure the WarpX backend is actually running (<code>npm start</code>, or double-click your start script) — this page needs it, a plain static file server isn't enough.</p>
+        </div>`;
+    }
     if (manual) showToast("Could not reach the server.");
   }
 }

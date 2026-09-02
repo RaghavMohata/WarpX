@@ -24,7 +24,7 @@
       <button class="icon-btn" data-open-cart aria-label="Cart">
         🛒<span class="cart-count" data-cart-count style="display:none;">0</span>
       </button>
-      <a href="login.html" class="btn btn-primary btn-sm hide-mobile">Login</a>
+      <a href="login.html" class="btn btn-primary btn-sm">Login</a>
       <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
     </div>
   </div>
@@ -32,14 +32,15 @@
 
 <header class="page-hero ph-login">
   <div class="container">
-    <span class="badge badge-lime" style="margin-bottom:12px;">📦 Order history</span>
+    <span class="badge badge-lime" style="margin-bottom:12px;">👤 My Profile</span>
     <h1 style="color:#fff;">My orders</h1>
-    <p>Every order placed while the WarpX server was running — pulled straight from the database.</p>
+    <p>Everything you've ordered, pulled straight from the database.</p>
   </div>
 </header>
 
 <section class="section">
   <div class="container" style="max-width:760px;">
+    <div id="profileCard"></div>
     <div id="ordersList"></div>
   </div>
 </section>
@@ -88,8 +89,15 @@ function escapeAttr(str) {
   return div.innerHTML;
 }
 
+function logout() {
+  localStorage.removeItem("warpx_user");
+  localStorage.removeItem("warpx_location");
+  window.location.href = "index.html";
+}
+
 async function loadOrders() {
   const list = document.getElementById("ordersList");
+  const profileCard = document.getElementById("profileCard");
   let user;
   try { user = JSON.parse(localStorage.getItem("warpx_user")); } catch (e) {}
 
@@ -103,6 +111,21 @@ async function loadOrders() {
       </div>`;
     return;
   }
+
+  profileCard.innerHTML = `
+    <div class="card" style="padding:22px 26px;margin-bottom:24px;">
+      <div class="row-between" style="flex-wrap:wrap;gap:12px;">
+        <div class="flex items-center gap-12">
+          <div class="service-icon" style="background:var(--grad-warp-soft);color:var(--violet);font-size:1.3rem;">👤</div>
+          <div>
+            <div style="font-weight:700;">${escapeAttr(user.name || "WarpX customer")}</div>
+            <div class="text-muted" style="font-size:.85rem;">${escapeAttr(user.phone)}</div>
+          </div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="logout()">Log out</button>
+      </div>
+    </div>
+  `;
 
   try {
     const res = await fetch(`/api/orders/${user.id}`);

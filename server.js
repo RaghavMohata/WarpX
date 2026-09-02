@@ -145,6 +145,37 @@ app.patch("/api/orders/:id/status", (req, res) => {
   res.json({ id, status });
 });
 
+// Submit a delivery-driver application (public — no login required).
+app.post("/api/drivers", (req, res) => {
+  const { name, phone, vehicleType, area, availability, notes } = req.body || {};
+  if (!name || !phone || !vehicleType) {
+    return res.status(400).json({ error: "Name, phone, and vehicle type are required." });
+  }
+  const info = db
+    .prepare(
+      `INSERT INTO drivers (name, phone, vehicle_type, area, availability, notes)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(name, phone, vehicleType, area || null, availability || null, notes || null);
+  res.json(db.prepare("SELECT * FROM drivers WHERE id = ?").get(info.lastInsertRowid));
+});
+
+// All driver applications, newest first — owner dashboard use.
+app.get("/api/drivers", (req, res) => {
+  res.json(db.prepare("SELECT * FROM drivers ORDER BY id DESC").all());
+});
+
+// Approve/reject a driver application.
+app.patch("/api/drivers/:id/status", (req, res) => {
+  const id = Number(req.params.id);
+  const { status } = req.body || {};
+  if (!["pending", "approved", "rejected"].includes(status)) {
+    return res.status(400).json({ error: "status must be pending, approved, or rejected" });
+  }
+  db.prepare("UPDATE drivers SET status = ? WHERE id = ?").run(status, id);
+  res.json({ id, status });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n  WarpX is running → http://localhost:${PORT}\n`);

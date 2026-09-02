@@ -58,6 +58,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_locations_user_id ON locations(user_id);
   CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
   CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
+
+  CREATE TABLE IF NOT EXISTS drivers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    vehicle_type TEXT NOT NULL,
+    area TEXT,
+    availability TEXT,
+    notes TEXT,
+    status TEXT DEFAULT 'pending',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 // Safe migrations for a warpx.db created before these columns existed.

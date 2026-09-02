@@ -48,6 +48,7 @@ python3 -m http.server 8080
 | `login.html` | Login/signup + the smart location capture flow (see below) |
 | `checkout.html` | Order summary, delivery address confirmation, and payment method — see below |
 | `orders.html` | Order history for the logged-in user, read live from the database |
+| `careers.html` | **Work With Us** — delivery driver registration, see below |
 | `admin.html` | **Owner dashboard** — see below |
 
 Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page navigation before checkout. Once you log in or place an order, that data is also written to `warpx.db` via the API in `server.js` — `localStorage` is now just a client-side cache (and the offline fallback), not the source of truth.
@@ -66,6 +67,9 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `GET /api/orders/:userId` | Order history for a single user, items included |
 | `GET /api/orders` | **All** orders across every customer, newest first — powers `admin.html` |
 | `PATCH /api/orders/:id/status` | Update an order's status (`placed` → `preparing` → `out for delivery` → `delivered`) |
+| `POST /api/drivers` | Submit a delivery-driver application (public, no login required) |
+| `GET /api/drivers` | All driver applications, newest first — powers the admin dashboard's Drivers tab |
+| `PATCH /api/drivers/:id/status` | Approve/reject an application (`pending` / `approved` / `rejected`) |
 
 `lib/zone.js` is a server-side port of the Haversine/zone logic in `js/location.js` — the browser copy is for instant map feedback before you submit; the server copy is what actually gets stored, so it's the source of truth.
 
@@ -95,13 +99,30 @@ Browsing and building a cart never requires an account — that stays open, like
 
 ## How you find out an order was placed
 
-`orders.html` only shows a *customer's own* history — it's not for you. **`admin.html`** is the owner's view: it polls `GET /api/orders` every 5 seconds, plays a short beep and pops a toast the moment a new order appears, and shows full customer contact info (name/phone) plus items so you can act on it. Click through the status buttons on each order (`placed → preparing → out for delivery → delivered`) as you work it.
+`orders.html` only shows a *customer's own* history — it's not for you. **`admin.html`** is the owner's view: it polls `GET /api/orders` every 5 seconds, plays a beep and pops a toast the moment a new order appears, and shows full customer contact info (name/phone) plus items so you can act on it. Click through the status buttons on each order (`placed → preparing → out for delivery → delivered`) as you work it.
 
 To use it: open `admin.html`, enter the PIN (**`1234`** by default), and just leave that tab open on a phone, tablet, or spare monitor at the counter — that's genuinely how small businesses run these on Swiggy/Zomato-style tablets.
 
-A few honest caveats:
-- **This is polling, not push.** It checks every 5 seconds while the tab is open — there's no notification if you close the tab or aren't looking at it. A phone push notification or SMS alert would need a real backend service (e.g. Twilio, or a push provider) — a bigger step than this project takes on.
-- **The PIN is a deterrent, not real security.** It's a hardcoded value checked in the page's own JavaScript (`ADMIN_PIN` in `admin.html`) — anyone who reads the page source can see it. Change it before showing this to anyone, and don't rely on it to protect real customer data. Proper access control needs real authentication.
+**What it does now, beyond the basics:**
+- **Sound that actually plays.** Earlier, `beep()` created a brand-new `AudioContext` inside the polling loop — browsers silently block audio that isn't triggered by a real user click, so the very first beeps were liable to never be heard. It now creates one `AudioContext` at the PIN-unlock click (a genuine user gesture) and reuses it, which is what makes the beep reliable.
+- **Desktop notifications.** The same unlock click also asks for OS-level notification permission (the browser `Notification` API). If you switch away from the tab, a new order pops a real desktop notification, not just an in-tab toast — click it to jump back. Toggle it anytime with the "Enable alerts" button.
+- **Per-service filters.** An "Orders" view with All/Food/Grocery/Medicine/Laundry/Anything tabs, so if you only run the medicine counter you can filter to just that — useful once one dashboard needs to be shared across different people handling different services.
+- **Escalation highlighting.** Any order still sitting at `placed` (never even acknowledged) for more than 10 minutes gets a red pulsing outline and an "Unacknowledged N min" tag, so a busy counter can't lose track of something going stale.
+- **A Drivers tab**, next to Orders, to review delivery-driver applications (see below) — with a badge showing how many are pending.
+
+**Honest long-term problems this still doesn't solve** (real infrastructure, not a code tweak):
+- **This is polling, not push.** The dashboard checks every 5 seconds while the tab is open — close the tab, or the browser/OS kills the tab in the background, and nothing reaches you at all. A real solution is a push channel that works with the tab closed: SMS (Twilio or similar), a mobile push notification (Firebase Cloud Messaging/APNs) to a proper phone app, or at minimum a Service Worker with the Push API so browser notifications survive a closed tab. All of these need a backend service and (for SMS) an ongoing per-message cost — a genuinely bigger step than this project takes on.
+- **Single shared PIN, no accounts.** `ADMIN_PIN` is one hardcoded value in the page's own JavaScript — anyone who reads page source sees it, there's no audit trail of *who* changed an order's status, and there's no way to give one staff member access to only, say, the medicine queue without them also seeing food orders (the per-service filter is a client-side view, not an access boundary). Real multi-retailer support needs actual retailer accounts with server-side authorization, the same password-hashing pattern already used for customers.
+- **Single point of failure.** If nobody is watching the one open dashboard tab — it crashed, the device is asleep, the wifi dropped — orders simply pile up unacknowledged with no fallback channel. A real deployment would want at least a second notification path (SMS/email) that doesn't depend on a browser tab staying open and connected.
+- **No delivery-partner dispatch.** Approving a driver application (see below) doesn't yet connect that driver to specific orders — there's no assignment, no "driver en route" status, no driver-facing app. That's the natural next layer once there's more than one delivery partner to coordinate.
+
+None of these need guesswork to fix — they need real accounts, a real push/SMS provider, and (eventually) a driver-facing app — each a genuine infrastructure decision rather than something to fake locally. Happy to build any of them next; they're called out here instead of quietly pretended-away.
+
+## Delivery drivers — "Work With Us"
+
+`careers.html` is a public registration page for people who want to deliver for WarpX — linked from the footer of every page and from a recruitment banner on the homepage. It asks for a name, phone number, vehicle type (bicycle/scooter/motorbike/car), the area they know well (optional), availability (full-time/part-time/weekends), and any notes — then posts to `POST /api/drivers`. No login required to apply; this is a lead-capture form, not a driver account system.
+
+Applications land in the **Drivers** tab of `admin.html`, filterable by status (pending/approved/rejected/all), with a badge showing how many are waiting on a decision. Approving or rejecting just updates a status column for now — see the "No delivery-partner dispatch" caveat above for what a real next step looks like.
 
 ## Delivery model
 
@@ -130,4 +151,5 @@ This keeps the precision (real coordinates, an accurate radius check) while keep
 - Checkout is **Cash on Delivery only** — no payment gateway is wired up. There's no real order fulfillment or delivery dispatch either; placing an order just persists it.
 - Login now checks a real hashed password (see "Login / sign-up" above) — the OTP step is gone. Prescription upload still isn't stored server-side — see `medicine.html`'s note about that.
 - Google Fonts (Space Grotesk, Inter) load from a CDN with system-font fallbacks if offline.
+- Every page ships a tiny inline SVG favicon (a ⚡, no extra file) — purely cosmetic, but it removes the browser's automatic `favicon.ico` 404 from the console on every page load.
 - Going beyond a laptop demo — real hosting, a managed Postgres instead of a single SQLite file, a real payment gateway — is a bigger step than this README covers; ask if/when you want to take it there.

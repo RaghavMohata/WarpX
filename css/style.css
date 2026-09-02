@@ -225,6 +225,7 @@ button{ font-family:inherit; }
 .ph-laundry{ background:linear-gradient(135deg,#8B5CF6,#5B21B6); }
 .ph-anything{ background:linear-gradient(135deg,#D6339B,#9D174D); }
 .ph-login{ background:var(--grad-warp); }
+.ph-careers{ background:linear-gradient(135deg,#EA580C,#7C2D12); }
 .page-hero .badge{ background:rgba(255,255,255,.16); color:#fff; }
 
 /* badges/tags */

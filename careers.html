@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+<title>Work With Us | WarpX</title>
+<meta name="description" content="Become a WarpX delivery partner — flexible hours, short town-wide trips, easy sign-up.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <div class="nav-links" id="navLinks">
+      <a href="index.html">Home</a>
+      <a href="food.html">Food</a>
+      <a href="grocery.html">Grocery</a>
+      <a href="medicine.html">Medicine</a>
+      <a href="laundry.html">Laundry</a>
+      <a href="anything.html">Anything Else</a>
+    </div>
+    <div class="nav-actions">
+      <button class="icon-btn" data-open-cart aria-label="Cart">
+        🛒<span class="cart-count" data-cart-count style="display:none;">0</span>
+      </button>
+      <a href="login.html" class="btn btn-primary btn-sm">Login</a>
+      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</nav>
+
+<header class="page-hero ph-careers">
+  <div class="container">
+    <span class="badge badge-lime" style="margin-bottom:12px;">🚴 Delivery Partners</span>
+    <h1 style="color:#fff;">Deliver with WarpX</h1>
+    <p>Earn on your own schedule, delivering across a town small enough that every trip is short. No office, no fixed shifts — just sign up below.</p>
+  </div>
+</header>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head center">
+      <span class="eyebrow">Why deliver with us</span>
+      <h2>Built for a small town, not a big fleet</h2>
+    </div>
+    <div class="grid grid-4">
+      <div class="card" style="padding:24px;">
+        <div class="service-icon" style="background:var(--grad-warp-soft);color:var(--violet);margin-bottom:12px;">⏰</div>
+        <h3>Flexible hours</h3>
+        <p class="mb-0" style="font-size:.9rem;">Log on when it suits you — mornings, evenings, or just weekends.</p>
+      </div>
+      <div class="card" style="padding:24px;">
+        <div class="service-icon" style="background:var(--grad-warp-soft);color:var(--violet);margin-bottom:12px;">📍</div>
+        <h3>Short trips</h3>
+        <p class="mb-0" style="font-size:.9rem;">Our whole service area is under 22 km² — no cross-city hauls.</p>
+      </div>
+      <div class="card" style="padding:24px;">
+        <div class="service-icon" style="background:var(--grad-warp-soft);color:var(--violet);margin-bottom:12px;">💰</div>
+        <h3>Earn per delivery</h3>
+        <p class="mb-0" style="font-size:.9rem;">Paid for every drop — food, grocery, medicine, laundry, anything.</p>
+      </div>
+      <div class="card" style="padding:24px;">
+        <div class="service-icon" style="background:var(--grad-warp-soft);color:var(--violet);margin-bottom:12px;">📝</div>
+        <h3>Simple sign-up</h3>
+        <p class="mb-0" style="font-size:.9rem;">Fill in the form below — we'll call you to sort out the details.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top:0;">
+  <div class="container" style="max-width:640px;">
+
+    <div class="card" id="formCard" style="padding:32px;">
+      <h3 style="margin-bottom:18px;">Apply to become a delivery partner</h3>
+
+      <div class="field">
+        <label for="drvName">Full name</label>
+        <input type="text" id="drvName" placeholder="e.g. Amit Kumar">
+      </div>
+      <div class="field">
+        <label for="drvPhone">Mobile number</label>
+        <input type="tel" id="drvPhone" placeholder="10-digit mobile number">
+      </div>
+
+      <div class="field">
+        <label>What will you deliver on?</label>
+        <div class="segmented" id="vehicleSeg">
+          <button type="button" class="active" data-val="Bicycle">🚲 Bicycle</button>
+          <button type="button" data-val="Scooter">🛵 Scooter</button>
+          <button type="button" data-val="Motorbike">🏍️ Motorbike</button>
+          <button type="button" data-val="Car">🚗 Car</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="drvArea">Area you know well (optional)</label>
+        <input type="text" id="drvArea" placeholder="e.g. Old Town, Station Side, Market Chowk...">
+      </div>
+
+      <div class="field">
+        <label>Availability</label>
+        <div class="segmented" id="availSeg">
+          <button type="button" class="active" data-val="Full-time">Full-time</button>
+          <button type="button" data-val="Part-time">Part-time</button>
+          <button type="button" data-val="Weekends only">Weekends only</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="drvNotes">Anything else we should know? (optional)</label>
+        <textarea id="drvNotes" placeholder="Prior delivery experience, whether the vehicle is your own, etc."></textarea>
+      </div>
+
+      <button class="btn btn-primary btn-block" onclick="submitApplication(this)">Apply to deliver 🚴</button>
+    </div>
+
+    <div class="card center" id="successCard" style="display:none;padding:48px 24px;">
+      <div style="font-size:2.2rem;margin-bottom:10px;">✅</div>
+      <h3>Application received!</h3>
+      <p class="text-muted">Thanks for applying — we'll call you on the number you gave us to sort out the next steps.</p>
+      <a href="index.html" class="btn btn-primary">Back to home</a>
+    </div>
+
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="brand" style="color:#fff;margin-bottom:10px;"><span class="brand-mark">W</span>WarpX</div>
+        <p>Anything you need, delivered at warp speed.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="food.html">Picasso Cafe</a>
+        <a href="grocery.html">Grocery</a>
+        <a href="medicine.html">Medicine</a>
+        <a href="laundry.html">Laundry</a>
+        <a href="anything.html">Anything Else</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="index.html#about">About</a>
+        <a href="index.html#how">How it works</a>
+        <a href="login.html">Login / Sign up</a>
+        <a href="orders.html">My Orders</a>
+        <a href="careers.html">Work With Us</a>
+      </div>
+      <div>
+        <h4>Delivery</h4>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Flat ₹20 delivery fee</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 WarpX. A quick-commerce demo for small towns.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="js/cart.js"></script>
+<script src="js/location.js"></script>
+<script src="js/main.js"></script>
+<script>
+let vehicleType = "Bicycle";
+document.getElementById("vehicleSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#vehicleSeg button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  vehicleType = btn.dataset.val;
+});
+
+let availability = "Full-time";
+document.getElementById("availSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#availSeg button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  availability = btn.dataset.val;
+});
+
+async function submitApplication(btn) {
+  const name = document.getElementById("drvName").value.trim();
+  const phone = document.getElementById("drvPhone").value.trim();
+  const area = document.getElementById("drvArea").value.trim();
+  const notes = document.getElementById("drvNotes").value.trim();
+
+  if (!name) return showToast("Enter your name first.");
+  if (!phone) return showToast("Enter your mobile number.");
+
+  btn.disabled = true;
+  btn.textContent = "Submitting...";
+  try {
+    const res = await fetch("/api/drivers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, phone, vehicleType, area, availability, notes }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || "Something went wrong.");
+      return;
+    }
+    document.getElementById("formCard").style.display = "none";
+    document.getElementById("successCard").style.display = "block";
+  } catch (err) {
+    showToast("Could not reach the server — make sure the WarpX backend is running.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Apply to deliver 🚴";
+  }
+}
+</script>
+</body>
+</html>

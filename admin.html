@@ -3,18 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
 <title>Owner Dashboard | WarpX</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="stylesheet" href="css/style.css">
 <style>
-  .admin-wrap{ max-width:820px; margin:0 auto; padding:32px 24px 80px; }
+  .admin-wrap{ max-width:900px; margin:0 auto; padding:32px 24px 80px; }
   .live-dot{ width:9px; height:9px; border-radius:50%; background:var(--success); display:inline-block; box-shadow:0 0 0 0 rgba(22,163,74,.6); animation:pulse 1.8s infinite; }
   @keyframes pulse{ 0%{ box-shadow:0 0 0 0 rgba(22,163,74,.5); } 70%{ box-shadow:0 0 0 8px rgba(22,163,74,0); } 100%{ box-shadow:0 0 0 0 rgba(22,163,74,0); } }
   .order-new{ border-color:var(--violet) !important; box-shadow:0 0 0 3px var(--grad-warp-soft); }
+  .order-stale{ border-color:var(--danger) !important; box-shadow:0 0 0 3px var(--danger-bg); animation:stalepulse 2s infinite; }
+  @keyframes stalepulse{ 0%{ box-shadow:0 0 0 0 rgba(220,38,38,.4); } 70%{ box-shadow:0 0 0 8px rgba(220,38,38,0); } 100%{ box-shadow:0 0 0 0 rgba(220,38,38,0); } }
   .status-row{ display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
   .status-btn{ font-size:.75rem; padding:6px 12px; border-radius:var(--radius-pill); border:1.5px solid var(--line-strong); background:var(--surface); cursor:pointer; font-weight:600; }
   .status-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
   #pinScreen{ min-height:80vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .stale-tag{ font-size:.7rem; font-weight:700; color:var(--danger); text-transform:uppercase; letter-spacing:.03em; }
+  .drv-card{ padding:20px 22px; margin-bottom:14px; }
+  .service-filter{ margin-bottom:16px; flex-wrap:wrap; }
 </style>
 </head>
 <body>
@@ -31,18 +37,44 @@
 </div>
 
 <div class="admin-wrap" id="dashboard" style="display:none;">
-  <div class="row-between" style="margin-bottom:24px;flex-wrap:wrap;gap:12px;">
+  <div class="row-between" style="margin-bottom:20px;flex-wrap:wrap;gap:12px;">
     <div>
       <h2 style="margin-bottom:4px;"><span class="live-dot"></span>&nbsp; Owner Dashboard</h2>
       <p class="text-muted mb-0" style="font-size:.85rem;">Checking for new orders every 5 seconds. Keep this tab open.</p>
     </div>
     <div class="flex gap-8">
       <button class="btn btn-ghost btn-sm" onclick="toggleSound()"><span id="soundLabel">🔊 Sound on</span></button>
-      <button class="btn btn-outline btn-sm" onclick="loadOrders(true)">↻ Refresh now</button>
+      <button class="btn btn-ghost btn-sm" onclick="requestNotifyPermission()"><span id="notifyLabel">🔔 Enable alerts</span></button>
+      <button class="btn btn-outline btn-sm" onclick="refreshCurrentTab()">↻ Refresh now</button>
     </div>
   </div>
 
-  <div id="ordersList"></div>
+  <div class="segmented" id="mainTabs" style="margin-bottom:18px;">
+    <button type="button" class="active" data-tab="orders">📦 Orders</button>
+    <button type="button" data-tab="drivers">🚴 Drivers <span id="driverBadge" class="badge badge-lime" style="display:none;margin-left:4px;"></span></button>
+  </div>
+
+  <div id="ordersPanel">
+    <div class="segmented service-filter" id="serviceFilter">
+      <button type="button" class="active" data-val="all">All</button>
+      <button type="button" data-val="food">🍽️ Food</button>
+      <button type="button" data-val="grocery">🥬 Grocery</button>
+      <button type="button" data-val="medicine">💊 Medicine</button>
+      <button type="button" data-val="laundry">🧺 Laundry</button>
+      <button type="button" data-val="anything">✨ Anything</button>
+    </div>
+    <div id="ordersList"></div>
+  </div>
+
+  <div id="driversPanel" style="display:none;">
+    <div class="segmented service-filter" id="driverFilter">
+      <button type="button" class="active" data-val="pending">Pending</button>
+      <button type="button" data-val="approved">Approved</button>
+      <button type="button" data-val="rejected">Rejected</button>
+      <button type="button" data-val="all">All</button>
+    </div>
+    <div id="driversList"></div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -51,20 +83,45 @@
 const ADMIN_PIN = "1234"; // change this before using this for anything real
 const SEEN_KEY = "warpx_admin_seen_ids";
 const SOUND_KEY = "warpx_admin_sound";
+const STALE_MINUTES = 10;
 let soundOn = localStorage.getItem(SOUND_KEY) !== "off";
+let audioCtx = null;
+let currentTab = "orders";
+let serviceFilter = "all";
+let driverFilter = "pending";
 
 function tryUnlock() {
   const val = document.getElementById("pinInput").value;
   if (val === ADMIN_PIN) {
     sessionStorage.setItem("warpx_admin_unlocked", "1");
-    document.getElementById("pinScreen").style.display = "none";
-    document.getElementById("dashboard").style.display = "block";
-    startPolling();
+    unlockDashboard();
   } else {
     showToast("Wrong PIN.");
   }
 }
 document.getElementById("pinInput").addEventListener("keydown", (e) => { if (e.key === "Enter") tryUnlock(); });
+
+function unlockDashboard() {
+  document.getElementById("pinScreen").style.display = "none";
+  document.getElementById("dashboard").style.display = "block";
+  // Both the AudioContext and the notification permission prompt need a
+  // genuine user gesture — this click is it. Doing this later (e.g. inside
+  // the polling loop) gets silently blocked by browser autoplay/permission
+  // policy, which is exactly the bug this priming avoids.
+  primeAudio();
+  if (window.Notification && Notification.permission === "default") {
+    requestNotifyPermission();
+  }
+  updateNotifyLabel();
+  startPolling();
+}
+
+function primeAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch (e) {}
+}
 
 function showToast(msg) {
   const t = document.getElementById("toast");
@@ -77,23 +134,52 @@ function toggleSound() {
   soundOn = !soundOn;
   localStorage.setItem(SOUND_KEY, soundOn ? "on" : "off");
   document.getElementById("soundLabel").textContent = soundOn ? "🔊 Sound on" : "🔇 Sound off";
+  if (soundOn) primeAudio();
 }
 document.getElementById("soundLabel").textContent = soundOn ? "🔊 Sound on" : "🔇 Sound off";
 
-function beep() {
-  if (!soundOn) return;
+function updateNotifyLabel() {
+  const label = document.getElementById("notifyLabel");
+  if (!window.Notification) { label.textContent = "🔕 Alerts unsupported"; return; }
+  if (Notification.permission === "granted") label.textContent = "🔔 Alerts on";
+  else if (Notification.permission === "denied") label.textContent = "🔕 Alerts blocked";
+  else label.textContent = "🔔 Enable alerts";
+}
+
+function requestNotifyPermission() {
+  if (!window.Notification) return showToast("This browser doesn't support desktop notifications.");
+  if (Notification.permission === "granted") { updateNotifyLabel(); return; }
+  Notification.requestPermission().then(() => updateNotifyLabel());
+}
+
+function notifyNewOrders(count) {
+  if (!window.Notification || Notification.permission !== "granted") return;
+  // A toast already covers the case where the owner is looking at the tab —
+  // an OS notification is only useful (and not just noise) when they're not.
+  if (!document.hidden) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const n = new Notification("⚡ New WarpX order" + (count > 1 ? "s" : ""), {
+      body: count > 1 ? `${count} new orders just came in.` : "A new order just came in.",
+      tag: "warpx-new-order",
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch (e) {}
+}
+
+function beep() {
+  if (!soundOn || !audioCtx) return;
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  try {
     [880, 1180].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
       osc.frequency.value = freq;
       osc.type = "sine";
-      gain.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.16);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.16 + 0.15);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(ctx.currentTime + i * 0.16);
-      osc.stop(ctx.currentTime + i * 0.16 + 0.15);
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime + i * 0.16);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + i * 0.16 + 0.15);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(audioCtx.currentTime + i * 0.16);
+      osc.stop(audioCtx.currentTime + i * 0.16 + 0.15);
     });
   } catch (e) {}
 }
@@ -106,69 +192,78 @@ function saveSeenIds(set) {
   localStorage.setItem(SEEN_KEY, JSON.stringify([...set]));
 }
 
+document.getElementById("mainTabs").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#mainTabs button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  currentTab = btn.dataset.tab;
+  document.getElementById("ordersPanel").style.display = currentTab === "orders" ? "block" : "none";
+  document.getElementById("driversPanel").style.display = currentTab === "drivers" ? "block" : "none";
+  refreshCurrentTab();
+});
+
+document.getElementById("serviceFilter").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#serviceFilter button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  serviceFilter = btn.dataset.val;
+  renderOrders(lastOrders);
+});
+
+document.getElementById("driverFilter").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#driverFilter button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  driverFilter = btn.dataset.val;
+  renderDrivers(lastDrivers);
+});
+
+function refreshCurrentTab() {
+  if (currentTab === "orders") loadOrders(true);
+  else loadDrivers(true);
+}
+
 const STATUS_STEPS = ["placed", "preparing", "out for delivery", "delivered"];
-let firstLoad = true;
+let firstOrderLoad = true;
+let lastOrders = [];
+
+function minutesAgo(sqliteDatetime) {
+  // SQLite's datetime('now') is UTC with a space separator — normalize to
+  // an ISO string so Date() doesn't (incorrectly) parse it as local time.
+  const iso = sqliteDatetime.replace(" ", "T") + "Z";
+  return (Date.now() - new Date(iso).getTime()) / 60000;
+}
 
 async function loadOrders(manual) {
   try {
     const res = await fetch("/api/orders");
     if (!res.ok) throw new Error("failed");
     const orders = await res.json();
+    lastOrders = orders;
 
     const seen = getSeenIds();
     const newOnes = orders.filter((o) => !seen.has(o.id));
 
-    if (!firstLoad && newOnes.length > 0) {
+    if (!firstOrderLoad && newOnes.length > 0) {
       beep();
       showToast(`⚡ ${newOnes.length} new order${newOnes.length > 1 ? "s" : ""} just came in!`);
-    }
-
-    const list = document.getElementById("ordersList");
-    if (orders.length === 0) {
-      list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">📭</div><h3>No orders yet</h3><p class="text-muted mb-0">They'll show up here the moment someone checks out.</p></div>`;
-    } else {
-      list.innerHTML = orders.map((o) => `
-        <div class="card ${!seen.has(o.id) ? "order-new" : ""}" style="padding:22px;margin-bottom:16px;">
-          <div class="row-between" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">
-            <div>
-              <b>#${esc(o.order_number)}</b> ${!seen.has(o.id) ? '<span class="badge badge-lime">NEW</span>' : ""}
-              <div class="text-muted" style="font-size:.8rem;">${esc(o.created_at)}</div>
-            </div>
-            <div style="text-align:right;">
-              <div style="font-weight:700;">${esc(o.customer_name || "Guest")}</div>
-              <div class="text-muted" style="font-size:.85rem;">${esc(o.customer_phone || "no phone on file")}</div>
-            </div>
-          </div>
-          <div style="margin:10px 0;">
-            ${o.items.map((it) => `
-              <div class="row-between" style="font-size:.9rem;padding:3px 0;">
-                <span>${it.qty} × ${esc(it.name)}${it.note ? ` <span class="text-muted">(${esc(it.note)})</span>` : ""}</span>
-                <span>${it.price != null ? "₹" + (it.price * it.qty) : "TBC"}</span>
-              </div>`).join("")}
-          </div>
-          <div class="row-between" style="font-weight:700;font-size:.95rem;">
-            <span>Total (₹${o.delivery_fee} delivery incl.)</span>
-            <span>₹${o.total}</span>
-          </div>
-          <div class="text-muted" style="font-size:.8rem;margin-top:4px;">
-            ${o.payment_method === "upi" ? "📱 UPI" + (o.upi_id ? " (" + esc(o.upi_id) + ")" : "") : "💵 Cash on Delivery"}
-          </div>
-          <div class="status-row">
-            ${STATUS_STEPS.map((s) => `<button class="status-btn ${o.status === s ? "active" : ""}" onclick="setStatus(${o.id},'${s}')">${s}</button>`).join("")}
-          </div>
-        </div>
-      `).join("");
+      notifyNewOrders(newOnes.length);
     }
 
     orders.forEach((o) => seen.add(o.id));
     saveSeenIds(seen);
-    firstLoad = false;
+    firstOrderLoad = false;
+
+    renderOrders(orders);
   } catch (err) {
     // Never leave the dashboard silently blank — that's indistinguishable
     // from "broken". Only replace a list that's showing real orders once
     // we've actually loaded something; a transient poll failure shouldn't
     // wipe out data already on screen.
-    if (firstLoad) {
+    if (firstOrderLoad) {
       document.getElementById("ordersList").innerHTML = `
         <div class="card center" style="padding:48px 24px;">
           <div style="font-size:2rem;margin-bottom:10px;">🛰️</div>
@@ -178,6 +273,60 @@ async function loadOrders(manual) {
     }
     if (manual) showToast("Could not reach the server.");
   }
+}
+
+function renderOrders(orders) {
+  const seen = getSeenIds();
+  const list = document.getElementById("ordersList");
+  const filtered = serviceFilter === "all"
+    ? orders
+    : orders.filter((o) => o.items.some((it) => it.service === serviceFilter));
+
+  if (orders.length === 0) {
+    list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">📭</div><h3>No orders yet</h3><p class="text-muted mb-0">They'll show up here the moment someone checks out.</p></div>`;
+    return;
+  }
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">🔍</div><h3>No orders in this category</h3><p class="text-muted mb-0">Try a different filter above.</p></div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map((o) => {
+    const age = minutesAgo(o.created_at);
+    const isStale = o.status === "placed" && age > STALE_MINUTES;
+    return `
+      <div class="card ${!seen.has(o.id) ? "order-new" : ""} ${isStale ? "order-stale" : ""}" style="padding:22px;margin-bottom:16px;">
+        <div class="row-between" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+          <div>
+            <b>#${esc(o.order_number)}</b> ${!seen.has(o.id) ? '<span class="badge badge-lime">NEW</span>' : ""}
+            ${isStale ? `<span class="stale-tag">⚠ Unacknowledged ${Math.floor(age)} min</span>` : ""}
+            <div class="text-muted" style="font-size:.8rem;">${esc(o.created_at)}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-weight:700;">${esc(o.customer_name || "Guest")}</div>
+            <div class="text-muted" style="font-size:.85rem;">${esc(o.customer_phone || "no phone on file")}</div>
+          </div>
+        </div>
+        <div style="margin:10px 0;">
+          ${o.items.map((it) => `
+            <div class="row-between" style="font-size:.9rem;padding:3px 0;">
+              <span>${it.qty} × ${esc(it.name)}${it.note ? ` <span class="text-muted">(${esc(it.note)})</span>` : ""}</span>
+              <span>${it.price != null ? "₹" + (it.price * it.qty) : "TBC"}</span>
+            </div>`).join("")}
+        </div>
+        <div class="row-between" style="font-weight:700;font-size:.95rem;">
+          <span>Total (₹${o.delivery_fee} delivery incl.)</span>
+          <span>₹${o.total}</span>
+        </div>
+        <div class="text-muted" style="font-size:.8rem;margin-top:4px;">
+          ${o.payment_method === "upi" ? "📱 UPI" + (o.upi_id ? " (" + esc(o.upi_id) + ")" : "") : "💵 Cash on Delivery"}
+        </div>
+        <div class="status-row">
+          ${STATUS_STEPS.map((s) => `<button class="status-btn ${o.status === s ? "active" : ""}" onclick="setStatus(${o.id},'${s}')">${s}</button>`).join("")}
+        </div>
+      </div>
+    `;
+  }).join("");
 }
 
 async function setStatus(orderId, status) {
@@ -193,6 +342,88 @@ async function setStatus(orderId, status) {
   }
 }
 
+let firstDriverLoad = true;
+let lastDrivers = [];
+
+async function loadDrivers(manual) {
+  try {
+    const res = await fetch("/api/drivers");
+    if (!res.ok) throw new Error("failed");
+    const drivers = await res.json();
+    lastDrivers = drivers;
+    firstDriverLoad = false;
+
+    const pendingCount = drivers.filter((d) => d.status === "pending").length;
+    const badge = document.getElementById("driverBadge");
+    if (pendingCount > 0) { badge.style.display = "inline-flex"; badge.textContent = pendingCount; }
+    else { badge.style.display = "none"; }
+
+    renderDrivers(drivers);
+  } catch (err) {
+    if (firstDriverLoad) {
+      document.getElementById("driversList").innerHTML = `
+        <div class="card center" style="padding:48px 24px;">
+          <div style="font-size:2rem;margin-bottom:10px;">🛰️</div>
+          <h3>Can't reach the server</h3>
+          <p class="text-muted mb-0">Make sure the WarpX backend is running — this needs it too.</p>
+        </div>`;
+    }
+    if (manual) showToast("Could not reach the server.");
+  }
+}
+
+function renderDrivers(drivers) {
+  const list = document.getElementById("driversList");
+  const filtered = driverFilter === "all" ? drivers : drivers.filter((d) => d.status === driverFilter);
+
+  if (drivers.length === 0) {
+    list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">🚴</div><h3>No applications yet</h3><p class="text-muted mb-0">Driver applications from careers.html will show up here.</p></div>`;
+    return;
+  }
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">🔍</div><h3>Nothing here</h3><p class="text-muted mb-0">Try a different filter above.</p></div>`;
+    return;
+  }
+
+  const statusBadge = { pending: "badge-warn", approved: "badge-success", rejected: "badge-danger" };
+
+  list.innerHTML = filtered.map((d) => `
+    <div class="card drv-card">
+      <div class="row-between" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+        <div>
+          <b>${esc(d.name)}</b>
+          <span class="badge ${statusBadge[d.status] || "badge-muted"}" style="margin-left:6px;">${esc(d.status)}</span>
+          <div class="text-muted" style="font-size:.82rem;">${esc(d.created_at)}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-weight:600;">${esc(d.phone)}</div>
+          <div class="text-muted" style="font-size:.85rem;">${esc(d.vehicle_type)}${d.availability ? " · " + esc(d.availability) : ""}</div>
+        </div>
+      </div>
+      ${d.area ? `<div style="font-size:.9rem;margin-bottom:4px;"><b>Area:</b> ${esc(d.area)}</div>` : ""}
+      ${d.notes ? `<div class="text-muted" style="font-size:.85rem;margin-bottom:8px;">${esc(d.notes)}</div>` : ""}
+      <div class="status-row">
+        <button class="status-btn ${d.status === "approved" ? "active" : ""}" onclick="setDriverStatus(${d.id},'approved')">✅ Approve</button>
+        <button class="status-btn ${d.status === "rejected" ? "active" : ""}" onclick="setDriverStatus(${d.id},'rejected')">❌ Reject</button>
+        <button class="status-btn ${d.status === "pending" ? "active" : ""}" onclick="setDriverStatus(${d.id},'pending')">↺ Back to pending</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+async function setDriverStatus(id, status) {
+  try {
+    await fetch(`/api/drivers/${id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    loadDrivers();
+  } catch (e) {
+    showToast("Could not update application.");
+  }
+}
+
 function esc(str) {
   const div = document.createElement("div");
   div.textContent = str ?? "";
@@ -202,14 +433,16 @@ function esc(str) {
 let pollTimer;
 function startPolling() {
   loadOrders();
-  pollTimer = setInterval(loadOrders, 5000);
+  loadDrivers();
+  pollTimer = setInterval(() => {
+    loadOrders();
+    loadDrivers();
+  }, 5000);
 }
 
 // Stay unlocked for the rest of this browser tab session.
 if (sessionStorage.getItem("warpx_admin_unlocked") === "1") {
-  document.getElementById("pinScreen").style.display = "none";
-  document.getElementById("dashboard").style.display = "block";
-  startPolling();
+  unlockDashboard();
 }
 </script>
 </body>

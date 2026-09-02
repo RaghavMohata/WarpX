@@ -167,7 +167,7 @@ function showOrderModal(orderNumber, eta, persisted) {
       <div class="modal-icon">✅</div>
       <h3>Order placed!</h3>
       <p class="text-muted">Order <b>#${orderNumber}</b> is being prepped. At warp speed, expect it in about <b>${eta}</b>.</p>
-      <p class="text-muted" style="font-size:.85rem;">Cash on delivery. ${persisted ? "Saved to your order history." : "This is a local demo checkout — Firebase wasn't reachable, so nothing was saved to the database."}</p>
+      <p class="text-muted" style="font-size:.85rem;">Cash on delivery. ${persisted ? "Saved to your order history." : "This is a local demo checkout — no server was detected, so nothing was saved to a database."}</p>
       ${persisted ? `<a href="orders.html" class="btn btn-ghost btn-block" style="margin-bottom:10px;">View order history</a>` : ""}
       <button class="btn btn-primary btn-block" onclick="closeModal()">Done</button>
     `;
@@ -182,12 +182,16 @@ async function placeOrder() {
   const loc = getSavedLocation ? getSavedLocation() : null;
 
   try {
-    if (!window.WarpXDB) throw new Error("Firebase isn't configured (js/firebase-config.js still has placeholder values)");
-    const order = await window.WarpXDB.placeOrder(user?.id, cart);
+    const res = await fetch("/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user?.id, items: cart }),
+    });
+    if (!res.ok) throw new Error("order save failed");
+    const order = await res.json();
     showOrderModal(order.orderNumber, `${order.etaMin} min`, true);
   } catch (err) {
-    console.error(err);
-    // Firebase not set up yet, or unreachable — keep the demo usable with a local-only order.
+    // No backend running — keep the demo usable with a local-only order.
     const orderNumber = "WPX" + Math.floor(100000 + Math.random() * 900000);
     const eta = loc && loc.etaMin ? `${loc.etaMin} min` : "20-30 min";
     showOrderModal(orderNumber, eta, false);

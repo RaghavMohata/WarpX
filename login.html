@@ -151,7 +151,6 @@
 <script src="js/cart.js"></script>
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
-<script type="module" src="js/firebase-db.js"></script>
 <script>
 document.getElementById("authSeg").addEventListener("click", (e) => {
   const btn = e.target.closest("button");
@@ -278,27 +277,40 @@ async function completeLogin(btn) {
   btn.disabled = true;
   btn.textContent = "Saving...";
 
-  // classifyZone() + saveLocation() are the same client-side helpers from
-  // js/location.js used throughout — this just also persists the result
-  // to Firestore so it survives across devices/sessions, not just this browser.
-  const saved = saveLocation({ ...currentLoc, address });
-
   try {
-    if (!window.WarpXDB) throw new Error("Firebase isn't configured (js/firebase-config.js still has placeholder values)");
-    const user = await window.WarpXDB.upsertUser(name, phone);
-    await window.WarpXDB.saveUserLocation(user.id, saved);
+    // Real backend: create/find the user row, then persist this location
+    // against it so both survive a server restart, not just this browser.
+    const userRes = await fetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, phone }),
+    });
+    if (!userRes.ok) throw new Error("user save failed");
+    const user = await userRes.json();
+
+    const locRes = await fetch(`/api/users/${user.id}/location`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...currentLoc, address }),
+    });
+    if (!locRes.ok) throw new Error("location save failed");
+    const zoneInfo = await locRes.json();
+
     localStorage.setItem("warpx_user", JSON.stringify({ id: user.id, name: user.name, phone: user.phone }));
-    showToast(`Welcome${name ? ", " + name : ""}! You're in our ${saved.zone} zone (~${saved.etaMin} min delivery).`);
+    saveLocation({ ...currentLoc, address, ...zoneInfo });
+
+    showToast(`Welcome${name ? ", " + name : ""}! You're in our ${zoneInfo.zone} zone (~${zoneInfo.etaMin} min delivery).`);
+    setTimeout(() => { window.location.href = "index.html"; }, 1200);
   } catch (err) {
-    console.error(err);
-    // Firebase not set up yet, or unreachable — fall back to a
-    // browser-only session so the demo still works without it.
+    // No server running (e.g. opened as a plain file) — fall back to a
+    // browser-only session so the demo still works without the backend.
     localStorage.setItem("warpx_user", JSON.stringify({ name, phone }));
-    showToast(`Saved locally (couldn't reach Firebase) — you're in our ${saved.zone} zone.`);
+    const saved = saveLocation({ ...currentLoc, address });
+    showToast(`Saved locally (no server detected) — you're in our ${saved.zone} zone.`);
+    setTimeout(() => { window.location.href = "index.html"; }, 1400);
   } finally {
     btn.disabled = false;
     btn.textContent = "Continue";
-    setTimeout(() => { window.location.href = "index.html"; }, 1200);
   }
 }
 

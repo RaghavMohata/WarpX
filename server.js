@@ -85,19 +85,31 @@ app.post("/api/orders", (req, res) => {
   const etaMin = loc ? loc.eta_min : "20-30";
   const orderNumber = "WPX" + Math.floor(100000 + Math.random() * 900000);
 
-  const orderInfo = db
-    .prepare(
-      `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(orderNumber, userId, subtotal, deliveryFee, total, etaMin, method, method === "upi" ? upiId || null : null);
-  const orderId = orderInfo.lastInsertRowid;
+  // Order + its line items must land together — wrap in a transaction so a
+  // failure partway through (e.g. a bad item) never leaves an order with
+  // some items missing.
+  let orderId;
+  db.exec("BEGIN");
+  try {
+    const orderInfo = db
+      .prepare(
+        `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(orderNumber, userId, subtotal, deliveryFee, total, etaMin, method, method === "upi" ? upiId || null : null);
+    orderId = orderInfo.lastInsertRowid;
 
-  const insertItem = db.prepare(
-    "INSERT INTO order_items (order_id, service, name, price, qty, note) VALUES (?, ?, ?, ?, ?, ?)"
-  );
-  for (const it of items) {
-    insertItem.run(orderId, it.service, it.name, it.price ?? null, it.qty || 1, it.note || null);
+    const insertItem = db.prepare(
+      "INSERT INTO order_items (order_id, service, name, price, qty, note) VALUES (?, ?, ?, ?, ?, ?)"
+    );
+    for (const it of items) {
+      if (!it.service || !it.name) throw new Error("each item needs a service and a name");
+      insertItem.run(orderId, it.service, it.name, it.price ?? null, it.qty || 1, it.note || null);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    return res.status(400).json({ error: "Could not place order: " + err.message });
   }
 
   res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed" });

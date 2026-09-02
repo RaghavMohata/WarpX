@@ -52,6 +52,12 @@ db.exec(`
     qty INTEGER NOT NULL,
     note TEXT
   );
+
+  -- Every list/lookup query filters by these — cheap now, matters once the
+  -- orders table has thousands of rows instead of dozens.
+  CREATE INDEX IF NOT EXISTS idx_locations_user_id ON locations(user_id);
+  CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+  CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 `);
 
 // Safe migrations for a warpx.db created before these columns existed.

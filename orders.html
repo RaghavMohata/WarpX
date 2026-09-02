@@ -148,9 +148,12 @@ async function loadOrders() {
         </div>
         <div style="margin-bottom:10px;">
           ${o.items.map((it) => `
-            <div class="row-between" style="font-size:.9rem;padding:4px 0;">
-              <span>${it.qty} × ${escapeAttr(it.name)} <span class="text-muted">(${escapeAttr(SERVICE_META[it.service]?.label || it.service)})</span></span>
-              <span>${it.price != null ? "₹" + (it.price * it.qty) : "TBC"}</span>
+            <div style="padding:4px 0;">
+              <div class="row-between" style="font-size:.9rem;">
+                <span>${it.qty} × ${escapeAttr(it.name)} <span class="text-muted">(${escapeAttr(SERVICE_META[it.service]?.label || it.service)})</span></span>
+                <span>${it.price != null ? "₹" + (it.price * it.qty) : "TBC"}</span>
+              </div>
+              ${it.note ? `<div class="text-muted" style="font-size:.8rem;">${escapeAttr(it.note)}</div>` : ""}
             </div>`).join("")}
         </div>
         <div class="divider" style="margin:12px 0;"></div>

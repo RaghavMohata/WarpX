@@ -48,6 +48,13 @@
       <a href="login.html?redirect=checkout.html" class="btn btn-primary">Login / Sign up</a>
     </div>
 
+    <div id="emptyCartNotice" class="card center" style="display:none;padding:48px 24px;">
+      <div style="font-size:2rem;margin-bottom:10px;">🛒</div>
+      <h3>Your cart is empty</h3>
+      <p class="text-muted">Add something from any service page before checking out.</p>
+      <a href="index.html#services" class="btn btn-primary">Browse services</a>
+    </div>
+
     <div id="checkoutBody" style="display:none;">
 
       <div class="card" style="padding:26px;margin-bottom:20px;">
@@ -167,8 +174,9 @@ function renderCheckout() {
 
   const subtotal = cartSubtotal();
   const hasCustom = cart.some((c) => c.price == null);
-  document.getElementById("checkoutSubtotal").textContent = (subtotal > 0 ? "₹" + subtotal : "—") + (hasCustom ? " + custom items" : "");
-  document.getElementById("checkoutTotal").textContent = subtotal > 0 ? "₹" + (subtotal + WARPX_DELIVERY_FEE) : "₹" + WARPX_DELIVERY_FEE + " + custom items";
+  const customSuffix = hasCustom ? " + custom items" : "";
+  document.getElementById("checkoutSubtotal").textContent = (subtotal > 0 ? "₹" + subtotal : "—") + customSuffix;
+  document.getElementById("checkoutTotal").textContent = "₹" + (subtotal + WARPX_DELIVERY_FEE) + customSuffix;
 
   const loc = getSavedLocation();
   const addressBox = document.getElementById("addressSummary");
@@ -229,9 +237,12 @@ async function submitOrder(btn) {
 (function guard() {
   const user = getWarpxUser();
   const loggedIn = user && user.id;
-  document.getElementById("guardNotice").style.display = loggedIn ? "none" : "block";
-  document.getElementById("checkoutBody").style.display = loggedIn ? "block" : "none";
-  if (loggedIn) renderCheckout();
+  const hasItems = getCart().length > 0;
+
+  document.getElementById("guardNotice").style.display = !loggedIn ? "block" : "none";
+  document.getElementById("emptyCartNotice").style.display = loggedIn && !hasItems ? "block" : "none";
+  document.getElementById("checkoutBody").style.display = loggedIn && hasItems ? "block" : "none";
+  if (loggedIn && hasItems) renderCheckout();
 })();
 </script>
 </body>

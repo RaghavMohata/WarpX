@@ -4,6 +4,7 @@ const express = require("express");
 const path = require("path");
 const db = require("./db");
 const { classifyZone } = require("./lib/zone");
+const { hashPassword, verifyPassword } = require("./lib/auth");
 
 const app = express();
 app.use(express.json());
@@ -13,21 +14,36 @@ function getLatestLocation(userId) {
   return db.prepare("SELECT * FROM locations WHERE user_id = ? ORDER BY id DESC LIMIT 1").get(userId);
 }
 
-// Create or fetch a user by phone number (demo auth — no real OTP check).
-app.post("/api/users", (req, res) => {
-  const { name, phone } = req.body || {};
-  if (!phone) return res.status(400).json({ error: "phone is required" });
+function publicUser(row) {
+  return { id: row.id, name: row.name, phone: row.phone };
+}
 
-  const existing = db.prepare("SELECT * FROM users WHERE phone = ?").get(phone);
-  if (existing) {
-    if (name && name !== existing.name) {
-      db.prepare("UPDATE users SET name = ? WHERE id = ?").run(name, existing.id);
-      existing.name = name;
-    }
-    return res.json(existing);
+// Create a new account — phone + password, hashed with a per-user salt.
+app.post("/api/auth/signup", (req, res) => {
+  const { name, phone, password } = req.body || {};
+  if (!phone || !password) return res.status(400).json({ error: "Phone and password are required." });
+  if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters." });
+
+  const existing = db.prepare("SELECT id FROM users WHERE phone = ?").get(phone);
+  if (existing) return res.status(409).json({ error: "An account with this phone number already exists — try logging in instead." });
+
+  const { hash, salt } = hashPassword(password);
+  const info = db
+    .prepare("INSERT INTO users (name, phone, password_hash, password_salt) VALUES (?, ?, ?, ?)")
+    .run(name || null, phone, hash, salt);
+  res.json(publicUser(db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid)));
+});
+
+// Log into an existing account.
+app.post("/api/auth/login", (req, res) => {
+  const { phone, password } = req.body || {};
+  if (!phone || !password) return res.status(400).json({ error: "Phone and password are required." });
+
+  const user = db.prepare("SELECT * FROM users WHERE phone = ?").get(phone);
+  if (!user || !verifyPassword(password, user.password_hash, user.password_salt)) {
+    return res.status(401).json({ error: "Incorrect phone number or password." });
   }
-  const info = db.prepare("INSERT INTO users (name, phone) VALUES (?, ?)").run(name || null, phone);
-  res.json(db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid));
+  res.json(publicUser(user));
 });
 
 // Save a captured location and compute the delivery zone/ETA server-side.

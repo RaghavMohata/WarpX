@@ -57,7 +57,8 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 
 | Endpoint | What it does |
 |---|---|
-| `POST /api/users` | Create or fetch a user by phone number (demo auth — no real OTP check) |
+| `POST /api/auth/signup` | Create an account — phone + password, hashed before it touches the database |
+| `POST /api/auth/login` | Log into an existing account — verifies the password, never the other way around |
 | `POST /api/users/:id/location` | Save a captured location; computes and returns the delivery zone/ETA server-side via `lib/zone.js` |
 | `GET /api/users/:id/location` | Fetch a user's most recent saved location |
 | `POST /api/orders` | Place an order — computes totals server-side, persists the order + line items |
@@ -66,6 +67,15 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `PATCH /api/orders/:id/status` | Update an order's status (`placed` → `preparing` → `out for delivery` → `delivered`) |
 
 `lib/zone.js` is a server-side port of the Haversine/zone logic in `js/location.js` — the browser copy is for instant map feedback before you submit; the server copy is what actually gets stored, so it's the source of truth.
+
+## Login / sign-up
+
+Real password authentication, not a demo OTP: `login.html` has a password field (with a show/hide toggle) and, when signing up, a confirm-password field. Passwords are never stored or transmitted in the clear — `lib/auth.js` hashes each one with Node's built-in `crypto.scryptSync` and a random per-user salt, and login compares hashes with a timing-safe check (`crypto.timingSafeEqual`) rather than a plain `===`.
+
+A few things this still doesn't do, on purpose (kept in scope for a local demo):
+- No session tokens/cookies — after a successful login the browser just holds `{id, name, phone}` in `localStorage`, the same as before. Anyone with access to that browser's storage can "act as" that logged-in user; there's no way to remotely revoke a session.
+- No rate-limiting on login attempts, no account lockout, no password reset flow.
+- If the server is unreachable at all (network error), it falls back to a local-only session so the demo keeps working — but a wrong password or a duplicate sign-up is always a hard rejection with no fallback, exactly because that's the point of adding a password.
 
 ## How you find out an order was placed
 
@@ -102,6 +112,6 @@ This keeps the precision (real coordinates, an accurate radius check) while keep
 ## Notes
 
 - Checkout is **Cash on Delivery only** — no payment gateway is wired up. There's no real order fulfillment or delivery dispatch either; placing an order just persists it.
-- OTP login is still a demo (any digits "work") and prescription upload isn't stored server-side — see `medicine.html`'s note about that.
+- Login now checks a real hashed password (see "Login / sign-up" above) — the OTP step is gone. Prescription upload still isn't stored server-side — see `medicine.html`'s note about that.
 - Google Fonts (Space Grotesk, Inter) load from a CDN with system-font fallbacks if offline.
 - Going beyond a laptop demo — real hosting, a managed Postgres instead of a single SQLite file, a real payment gateway — is a bigger step than this README covers; ask if/when you want to take it there.

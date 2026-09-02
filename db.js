@@ -10,6 +10,8 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
     phone TEXT UNIQUE NOT NULL,
+    password_hash TEXT,
+    password_salt TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -49,5 +51,10 @@ db.exec(`
     note TEXT
   );
 `);
+
+// Safe migration for a warpx.db created before password auth existed.
+for (const col of ["password_hash TEXT", "password_salt TEXT"]) {
+  try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch (e) {}
+}
 
 module.exports = db;

@@ -58,12 +58,15 @@
           <input type="tel" id="authPhone" placeholder="10-digit mobile number">
         </div>
         <div class="field">
-          <label for="authOtp">OTP</label>
+          <label for="authPassword">Password</label>
           <div class="input-row">
-            <input type="text" id="authOtp" placeholder="Enter OTP" maxlength="6">
-            <button class="btn btn-ghost" style="flex:0 0 auto;" onclick="showToast('Demo OTP: 1234 (no SMS actually sent)')">Send OTP</button>
+            <input type="password" id="authPassword" placeholder="At least 6 characters" autocomplete="current-password">
+            <button type="button" class="btn btn-ghost" style="flex:0 0 auto;" onclick="togglePasswordVisibility('authPassword', this)" aria-label="Show password">👁️</button>
           </div>
-          <p class="hint">This is a demo — any 4 digits will work.</p>
+        </div>
+        <div class="field" id="confirmPasswordField" style="display:none;">
+          <label for="authConfirmPassword">Confirm password</label>
+          <input type="password" id="authConfirmPassword" placeholder="Re-enter your password" autocomplete="new-password">
         </div>
         <div class="divider"></div>
         <p class="text-muted" style="font-size:.85rem;">Set your delivery location on the right, then continue below.</p>
@@ -157,8 +160,19 @@ document.getElementById("authSeg").addEventListener("click", (e) => {
   if (!btn) return;
   document.querySelectorAll("#authSeg button").forEach((b) => b.classList.remove("active"));
   btn.classList.add("active");
-  document.getElementById("nameField").style.display = btn.dataset.val === "signup" ? "block" : "none";
+  const isSignup = btn.dataset.val === "signup";
+  document.getElementById("nameField").style.display = isSignup ? "block" : "none";
+  document.getElementById("confirmPasswordField").style.display = isSignup ? "block" : "none";
+  document.getElementById("authPassword").setAttribute("autocomplete", isSignup ? "new-password" : "current-password");
 });
+
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  const showing = input.type === "text";
+  input.type = showing ? "password" : "text";
+  btn.textContent = showing ? "👁️" : "🙈";
+  btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+}
 
 let currentLoc = null; // {lat, lng, accuracy, method}
 
@@ -269,45 +283,60 @@ window.addEventListener("pointerup", () => { dragging = false; });
 
 async function completeLogin(btn) {
   const phone = document.getElementById("authPhone").value.trim();
+  const password = document.getElementById("authPassword").value;
+  const mode = document.querySelector("#authSeg button.active").dataset.val; // "login" | "signup"
+
   if (!phone) return showToast("Enter your mobile number first.");
+  if (!password || password.length < 6) return showToast("Password must be at least 6 characters.");
+  if (mode === "signup" && password !== document.getElementById("authConfirmPassword").value) {
+    return showToast("Passwords don't match.");
+  }
   if (!currentLoc) return showToast("Set a delivery location first.");
 
   const name = document.getElementById("authName").value.trim();
   const address = document.getElementById("addressNote").value.trim();
+  // Local cache + zone calc (js/location.js) — happens either way, server or not.
+  const saved = saveLocation({ ...currentLoc, address });
+
   btn.disabled = true;
   btn.textContent = "Saving...";
-
   try {
-    // Real backend: create/find the user row, then persist this location
-    // against it so both survive a server restart, not just this browser.
-    const userRes = await fetch("/api/users", {
+    const endpoint = mode === "signup" ? "/api/auth/signup" : "/api/auth/login";
+    const body = mode === "signup" ? { name, phone, password } : { phone, password };
+
+    let res;
+    try {
+      res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (networkErr) {
+      // No server running (e.g. opened as a plain file) — fall back to a
+      // browser-only session so the demo still works without the backend.
+      localStorage.setItem("warpx_user", JSON.stringify({ name, phone }));
+      showToast(`Saved locally (couldn't reach the server) — you're in our ${saved.zone} zone.`);
+      setTimeout(() => { window.location.href = "index.html"; }, 1400);
+      return;
+    }
+
+    const data = await res.json();
+    if (!res.ok) {
+      // A real rejection (wrong password, duplicate phone, etc.) — never
+      // fall back to a local session here, that would defeat the point.
+      showToast(data.error || "Something went wrong.");
+      return;
+    }
+
+    await fetch(`/api/users/${data.id}/location`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, phone }),
+      body: JSON.stringify(saved),
     });
-    if (!userRes.ok) throw new Error("user save failed");
-    const user = await userRes.json();
 
-    const locRes = await fetch(`/api/users/${user.id}/location`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...currentLoc, address }),
-    });
-    if (!locRes.ok) throw new Error("location save failed");
-    const zoneInfo = await locRes.json();
-
-    localStorage.setItem("warpx_user", JSON.stringify({ id: user.id, name: user.name, phone: user.phone }));
-    saveLocation({ ...currentLoc, address, ...zoneInfo });
-
-    showToast(`Welcome${name ? ", " + name : ""}! You're in our ${zoneInfo.zone} zone (~${zoneInfo.etaMin} min delivery).`);
+    localStorage.setItem("warpx_user", JSON.stringify({ id: data.id, name: data.name, phone: data.phone }));
+    showToast(`Welcome${data.name ? ", " + data.name : ""}! You're in our ${saved.zone} zone (~${saved.etaMin} min delivery).`);
     setTimeout(() => { window.location.href = "index.html"; }, 1200);
-  } catch (err) {
-    // No server running (e.g. opened as a plain file) — fall back to a
-    // browser-only session so the demo still works without the backend.
-    localStorage.setItem("warpx_user", JSON.stringify({ name, phone }));
-    const saved = saveLocation({ ...currentLoc, address });
-    showToast(`Saved locally (no server detected) — you're in our ${saved.zone} zone.`);
-    setTimeout(() => { window.location.href = "index.html"; }, 1400);
   } finally {
     btn.disabled = false;
     btn.textContent = "Continue";

@@ -34,7 +34,7 @@
   <div class="container">
     <span class="badge badge-lime" style="margin-bottom:12px;">📦 Order history</span>
     <h1 style="color:#fff;">My orders</h1>
-    <p>Every order placed while the WarpX server was running — pulled straight from the database.</p>
+    <p>Every order you've placed — pulled straight from Firebase.</p>
   </div>
 </header>
 
@@ -81,6 +81,7 @@
 <script src="js/cart.js"></script>
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
+<script type="module" src="js/firebase-db.js"></script>
 <script>
 function escapeAttr(str) {
   const div = document.createElement("div");
@@ -98,16 +99,15 @@ async function loadOrders() {
       <div class="card center" style="padding:48px 24px;">
         <div style="font-size:2rem;margin-bottom:10px;">🔒</div>
         <h3>No account found on this device</h3>
-        <p class="text-muted">Order history is tied to your WarpX account. Log in first — this only works with the local server running, since that's what saves orders to the database.</p>
+        <p class="text-muted">Order history is tied to your WarpX account. Log in first — you'll need Firebase configured (see README.md) since that's what saves orders to the database.</p>
         <a href="login.html" class="btn btn-primary">Login / Sign up</a>
       </div>`;
     return;
   }
 
   try {
-    const res = await fetch(`/api/orders/${user.id}`);
-    if (!res.ok) throw new Error("failed");
-    const orders = await res.json();
+    if (!window.WarpXDB) throw new Error("Firebase isn't configured (js/firebase-config.js still has placeholder values)");
+    const orders = await window.WarpXDB.getOrders(user.id);
 
     if (orders.length === 0) {
       list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">📭</div><h3>No orders yet</h3><p class="text-muted mb-0">Place one from any service page — it'll show up here.</p></div>`;
@@ -118,8 +118,8 @@ async function loadOrders() {
       <div class="card" style="padding:24px;margin-bottom:16px;">
         <div class="row-between" style="margin-bottom:10px;">
           <div>
-            <b>#${escapeAttr(o.order_number)}</b>
-            <div class="text-muted" style="font-size:.82rem;">${escapeAttr(o.created_at)}</div>
+            <b>#${escapeAttr(o.orderNumber)}</b>
+            <div class="text-muted" style="font-size:.82rem;">${o.createdAt?.toDate ? escapeAttr(o.createdAt.toDate().toLocaleString()) : ""}</div>
           </div>
           <span class="badge badge-success">${escapeAttr(o.status)}</span>
         </div>
@@ -132,14 +132,15 @@ async function loadOrders() {
         </div>
         <div class="divider" style="margin:12px 0;"></div>
         <div class="row-between" style="font-weight:700;">
-          <span>Total (incl. ₹${o.delivery_fee} delivery)</span>
+          <span>Total (incl. ₹${o.deliveryFee} delivery)</span>
           <span>₹${o.total}</span>
         </div>
-        <div class="text-muted" style="font-size:.8rem;margin-top:6px;">Estimated delivery: ${escapeAttr(o.eta_min)} min</div>
+        <div class="text-muted" style="font-size:.8rem;margin-top:6px;">Estimated delivery: ${escapeAttr(o.etaMin)} min</div>
       </div>
     `).join("");
   } catch (err) {
-    list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">🛰️</div><h3>Can't reach the server</h3><p class="text-muted mb-0">Order history needs the WarpX backend running (<code>npm start</code>) — it's what talks to the database.</p></div>`;
+    console.error(err);
+    list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">🛰️</div><h3>Can't reach Firebase</h3><p class="text-muted mb-0">Order history needs Firebase configured — see README.md for setup steps.</p></div>`;
   }
 }
 

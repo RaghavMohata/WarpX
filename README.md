@@ -4,26 +4,75 @@
 
 WarpX is a hyperlocal quick-commerce pickup & drop service built for small towns — food, grocery, medicine, laundry, and anything else, all with a single flat delivery fee.
 
-## Running locally, with the real database
+## Running locally, with a real database (Firebase)
 
-WarpX now has a small backend: an Express server backed by SQLite, using Node's **built-in** `node:sqlite` module — no database to install, no account to sign up for, no native modules to compile. Just:
+WarpX's database is **Firebase Firestore**, talked to directly from the browser — there's no server of your own to run at all. That also means the exact same files work locally and once actually deployed (Firebase Hosting, GitHub Pages, Netlify, anywhere) — nothing about the database changes between the two.
 
-```bash
-npm install     # installs Express (the only dependency)
-npm start       # runs server.js — serves the site AND the API
-# then open http://localhost:3000
+### 1. Create a Firebase project (one-time, in your browser)
+
+This part only you can do — it needs your own Google account:
+
+1. Go to [console.firebase.google.com](https://console.firebase.google.com) → **Add project** → give it any name (e.g. `warpx`) → you can skip Google Analytics.
+2. In the left sidebar: **Build → Firestore Database → Create database**. Pick any region close to you, and start in **test mode** (you'll tighten the rules in step 3).
+3. Still in the console: **Firestore Database → Rules**, and replace the contents with:
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /users/{userId} {
+         allow read, write: if true;
+       }
+       match /orders/{orderId} {
+         allow read, write: if true;
+       }
+     }
+   }
+   ```
+   This is intentionally wide open — there's no real login (the OTP is a demo) to check `request.auth` against yet, so there's nothing more restrictive to gate on. Firebase's own default "test mode" rules expire after 30 days; this replaces them with the same openness on purpose, so it doesn't quietly stop working. Don't launch this to real users without adding [Firebase Authentication](https://firebase.google.com/docs/auth) and rules scoped to it first.
+4. **Project settings** (gear icon, top left) → scroll to **Your apps** → click the **`</>`** (Web) icon → register an app (any nickname) → it shows you a `firebaseConfig` object. Copy it.
+
+### 2. Drop your config into the project
+
+Open `js/firebase-config.js` and replace the placeholder values with the ones from step 1.4:
+
+```js
+export const firebaseConfig = {
+  apiKey: "...",
+  authDomain: "...",
+  projectId: "...",
+  storageBucket: "...",
+  messagingSenderId: "...",
+  appId: "...",
+};
 ```
 
-Requires **Node.js 22.5+** (for `node:sqlite`). Check with `node -v`; if you're on an older Node, upgrade first — the built-in SQLite module won't be there otherwise. You'll see an "experimental feature" warning in the console when it starts — that's expected, SQLite support is still marked experimental in Node itself, but it's stable enough for local use here.
+These values are safe to have in client-side code — they identify your project, not a secret credential; the security rules from step 1.3 are what actually control access.
 
-A `warpx.db` file appears in the project folder on first run — that's your entire database, a single file. Delete it any time to start fresh; it's `.gitignore`d, so it never gets committed. Users, saved locations, and every placed order are persisted there and survive restarts — check `orders.html` after placing an order to see it read back from the database.
+### 3. Run it
 
-**Without the backend running** (e.g. opening the files with a plain static server, or as `file://`), the site still works as a front-end-only demo: login and checkout fall back to `localStorage`-only simulation and say so in the UI. To run it that way instead:
+No build step, no `npm install` needed for the site itself — just serve the folder:
 
 ```bash
 python3 -m http.server 8080
 # then open http://localhost:8080
 ```
+
+(any static server works — `npx serve .`, VS Code's Live Server, etc.)
+
+**If you skip steps 1–2** (config still has placeholder values), the site still works as a front-end-only demo: login and checkout notice Firebase isn't configured, fall back to `localStorage`-only simulation, and say so in the UI rather than breaking.
+
+### Going live
+
+Since there's no server, hosting is just "put the static files somewhere" — Firebase Hosting is the natural pick since you already have the project:
+
+```bash
+npm install -g firebase-tools
+firebase login          # opens a browser to sign into your Google account
+firebase init hosting    # pick your project, public directory = "." , configure as single-page app = No
+firebase deploy
+```
+
+That gives you a real `https://<your-project>.web.app` URL. GitHub Pages, Netlify, or Vercel work exactly as well — it's plain static files either way.
 
 ## Pages
 
@@ -38,21 +87,21 @@ python3 -m http.server 8080
 | `login.html` | Login/signup + the smart location capture flow (see below) |
 | `orders.html` | Order history for the logged-in user, read live from the database |
 
-Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page navigation before checkout. Once you log in or place an order, that data is also written to `warpx.db` via the API in `server.js` — `localStorage` is now just a client-side cache (and the offline fallback), not the source of truth.
+Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page navigation before checkout. Once you log in or place an order, that data is also written to Firestore via `js/firebase-db.js` — `localStorage` is now just a client-side cache (and the offline fallback), not the source of truth.
 
-## Backend / API
+## Database access layer
 
-`server.js` exposes a small JSON API, all backed by `db.js` (schema + the SQLite connection):
+`js/firebase-db.js` is loaded as an ES module (`<script type="module">`, on every page) and attaches its functions to `window.WarpXDB` so the rest of the code — plain classic `<script>` files like `js/cart.js`, and inline page scripts — can call them without becoming modules themselves.
 
-| Endpoint | What it does |
+| Function | What it does |
 |---|---|
-| `POST /api/users` | Create or fetch a user by phone number (demo auth — no real OTP check) |
-| `POST /api/users/:id/location` | Save a captured location; computes and returns the delivery zone/ETA server-side via `lib/zone.js` |
-| `GET /api/users/:id/location` | Fetch a user's most recent saved location |
-| `POST /api/orders` | Place an order — computes totals server-side, persists the order + line items |
-| `GET /api/orders/:userId` | Order history for a user, items included |
+| `WarpXDB.upsertUser(name, phone)` | Create or fetch a user document by phone number (demo auth — no real OTP check; phone is the document id) |
+| `WarpXDB.saveUserLocation(userId, loc)` | Persist a captured location (lat/lng, zone, ETA — already computed client-side by `classifyZone()` in `js/location.js`) |
+| `WarpXDB.getUserLocation(userId)` | Fetch a user's most recently saved location |
+| `WarpXDB.placeOrder(userId, items)` | Place an order (Cash on Delivery) — computes totals, stores the order with its items inline |
+| `WarpXDB.getOrders(userId)` | Order history for a user, newest first |
 
-`lib/zone.js` is a server-side port of the Haversine/zone logic in `js/location.js` — the browser copy is for instant map feedback before you submit; the server copy is what actually gets stored, so it's the source of truth.
+Firestore layout: a top-level `users` collection (doc id = phone number) holding profile + latest `location`, and a top-level `orders` collection (auto ids) with each order's items embedded directly on the document — no separate line-items collection needed for this scale.
 
 ## Delivery model
 
@@ -79,6 +128,6 @@ This keeps the precision (real coordinates, an accurate radius check) while keep
 ## Notes
 
 - Checkout is **Cash on Delivery only** — no payment gateway is wired up. There's no real order fulfillment or delivery dispatch either; placing an order just persists it.
-- OTP login is still a demo (any digits "work") and prescription upload isn't stored server-side — see `medicine.html`'s note about that.
-- Google Fonts (Space Grotesk, Inter) load from a CDN with system-font fallbacks if offline.
-- Going beyond a laptop demo — real hosting, a managed Postgres instead of a single SQLite file, a real payment gateway — is a bigger step than this README covers; ask if/when you want to take it there.
+- OTP login is still a demo (any digits "work") and prescription upload isn't stored anywhere server-side — see `medicine.html`'s note about that.
+- The Firestore security rules above are wide open on purpose (see step 1.3) — there's no real authentication yet to scope them to. Add Firebase Authentication before this goes anywhere near real users/orders.
+- Google Fonts (Space Grotesk, Inter) and the Firebase SDK both load from CDNs, so an internet connection is required even for local use — there's no offline mode (Google Fonts falls back to system fonts if blocked; Firebase, being the database, can't).

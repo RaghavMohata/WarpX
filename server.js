@@ -66,22 +66,31 @@ app.get("/api/users/:id/location", (req, res) => {
 });
 
 // Place an order — computes totals server-side and persists items.
+// Requires a logged-in account: orders are never anonymous.
 app.post("/api/orders", (req, res) => {
-  const { userId, items } = req.body || {};
+  const { userId, items, paymentMethod, upiId } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "items are required" });
   }
+  if (!userId) return res.status(401).json({ error: "Please log in to place an order." });
+  const user = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
+  if (!user) return res.status(401).json({ error: "Please log in to place an order." });
+
+  const method = paymentMethod === "upi" ? "upi" : "cod";
 
   const subtotal = items.reduce((sum, it) => sum + (Number(it.price) || 0) * (it.qty || 1), 0);
   const deliveryFee = 20;
   const total = subtotal + deliveryFee;
-  const loc = userId ? getLatestLocation(userId) : null;
+  const loc = getLatestLocation(userId);
   const etaMin = loc ? loc.eta_min : "20-30";
   const orderNumber = "WPX" + Math.floor(100000 + Math.random() * 900000);
 
   const orderInfo = db
-    .prepare(`INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min) VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(orderNumber, userId || null, subtotal, deliveryFee, total, etaMin);
+    .prepare(
+      `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(orderNumber, userId, subtotal, deliveryFee, total, etaMin, method, method === "upi" ? upiId || null : null);
   const orderId = orderInfo.lastInsertRowid;
 
   const insertItem = db.prepare(
@@ -91,7 +100,7 @@ app.post("/api/orders", (req, res) => {
     insertItem.run(orderId, it.service, it.name, it.price ?? null, it.qty || 1, it.note || null);
   }
 
-  res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, status: "placed" });
+  res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed" });
 });
 
 // All orders across all customers — for the owner's dashboard (admin.html).

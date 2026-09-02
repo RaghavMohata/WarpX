@@ -46,6 +46,7 @@ python3 -m http.server 8080
 | `laundry.html` | Laundry service selection with quantities + pickup scheduling |
 | `anything.html` | The core "just write it" freeform request page (delivery *or* pickup-and-drop between two places) |
 | `login.html` | Login/signup + the smart location capture flow (see below) |
+| `checkout.html` | Order summary, delivery address confirmation, and payment method — see below |
 | `orders.html` | Order history for the logged-in user, read live from the database |
 | `admin.html` | **Owner dashboard** — see below |
 
@@ -61,7 +62,7 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `POST /api/auth/login` | Log into an existing account — verifies the password, never the other way around |
 | `POST /api/users/:id/location` | Save a captured location; computes and returns the delivery zone/ETA server-side via `lib/zone.js` |
 | `GET /api/users/:id/location` | Fetch a user's most recent saved location |
-| `POST /api/orders` | Place an order — computes totals server-side, persists the order + line items |
+| `POST /api/orders` | Place an order — **requires a valid, logged-in `userId`** (rejects with 401 otherwise); computes totals server-side, persists the order + line items + payment method |
 | `GET /api/orders/:userId` | Order history for a single user, items included |
 | `GET /api/orders` | **All** orders across every customer, newest first — powers `admin.html` |
 | `PATCH /api/orders/:id/status` | Update an order's status (`placed` → `preparing` → `out for delivery` → `delivered`) |
@@ -76,6 +77,21 @@ A few things this still doesn't do, on purpose (kept in scope for a local demo):
 - No session tokens/cookies — after a successful login the browser just holds `{id, name, phone}` in `localStorage`, the same as before. Anyone with access to that browser's storage can "act as" that logged-in user; there's no way to remotely revoke a session.
 - No rate-limiting on login attempts, no account lockout, no password reset flow.
 - If the server is unreachable at all (network error), it falls back to a local-only session so the demo keeps working — but a wrong password or a duplicate sign-up is always a hard rejection with no fallback, exactly because that's the point of adding a password.
+
+## Checkout — login required, address confirm, payment method
+
+Browsing and building a cart never requires an account — that stays open, like most quick-commerce apps. **Checking out does.** Clicking "Proceed to checkout" in the cart drawer:
+
+1. Not logged in → sent to `login.html?redirect=checkout.html` (with a toast explaining why, and the login page's heading changes to "Log in to complete your order"). After logging in or signing up, you land back on `checkout.html` automatically — the `?redirect=` param is generic, so anywhere that needs someone logged in first can reuse it.
+2. Logged in → straight to `checkout.html`, which shows:
+   - **Your order** — items, subtotal, the flat ₹20 delivery fee, total.
+   - **Delivery address** — your saved location's landmark note and zone/ETA, with a **Change** link back into `login.html`'s location picker (the one with the map/GPS/landmarks — not duplicated here).
+   - **Payment method** — Cash on Delivery, or UPI (an optional UPI ID field, purely informational — see the caveat below).
+3. **Place order** posts to `POST /api/orders`, which itself independently re-checks that `userId` is a real, logged-in account — checking out isn't just hidden by the UI, a direct API call with no `userId` is rejected with a 401 regardless of what the front-end does. I verified this directly (a raw `fetch` to the endpoint with no `userId` returns `{"error":"Please log in to place an order."}`, status 401).
+
+`checkout.html` also guards itself on load — visiting it directly without being logged in shows a "Log in to check out" prompt instead of the order form, so there's no way to reach it by skipping the cart drawer either.
+
+**UPI is a demo selection, not a real payment integration.** Choosing it just records "UPI" (and whatever VPA you typed, if any) on the order — nothing is charged, no payment gateway is contacted, same "Cash on Delivery only" honesty this project has had throughout. A real UPI flow needs a payment aggregator account (Razorpay, PhonePe for Business, Google Pay's API, etc.) — a bigger step than this project takes on; ask if/when you want to wire one in for real.
 
 ## How you find out an order was placed
 

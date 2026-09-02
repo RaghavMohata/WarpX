@@ -158,7 +158,7 @@ async function loadOrders() {
           <span>Total (incl. ₹${o.delivery_fee} delivery)</span>
           <span>₹${o.total}</span>
         </div>
-        <div class="text-muted" style="font-size:.8rem;margin-top:6px;">Estimated delivery: ${escapeAttr(o.eta_min)} min</div>
+        <div class="text-muted" style="font-size:.8rem;margin-top:6px;">Estimated delivery: ${escapeAttr(o.eta_min)} min · ${o.payment_method === "upi" ? "📱 UPI" : "💵 Cash on Delivery"}</div>
       </div>
     `).join("");
   } catch (err) {

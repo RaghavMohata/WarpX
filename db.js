@@ -38,6 +38,8 @@ db.exec(`
     delivery_fee REAL NOT NULL,
     total REAL NOT NULL,
     eta_min TEXT,
+    payment_method TEXT DEFAULT 'cod',
+    upi_id TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -52,9 +54,12 @@ db.exec(`
   );
 `);
 
-// Safe migration for a warpx.db created before password auth existed.
+// Safe migrations for a warpx.db created before these columns existed.
 for (const col of ["password_hash TEXT", "password_salt TEXT"]) {
   try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch (e) {}
+}
+for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT"]) {
+  try { db.exec(`ALTER TABLE orders ADD COLUMN ${col}`); } catch (e) {}
 }
 
 module.exports = db;

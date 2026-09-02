@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Checkout | WarpX</title>
+<meta name="description" content="Confirm your order, delivery address, and payment method.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <div class="nav-links" id="navLinks">
+      <a href="index.html">Home</a>
+      <a href="food.html">Food</a>
+      <a href="grocery.html">Grocery</a>
+      <a href="medicine.html">Medicine</a>
+      <a href="laundry.html">Laundry</a>
+      <a href="anything.html">Anything Else</a>
+    </div>
+    <div class="nav-actions">
+      <button class="icon-btn" data-open-cart aria-label="Cart">
+        🛒<span class="cart-count" data-cart-count style="display:none;">0</span>
+      </button>
+      <a href="login.html" class="btn btn-primary btn-sm">Login</a>
+      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</nav>
+
+<header class="page-hero ph-login">
+  <div class="container">
+    <span class="badge badge-lime" style="margin-bottom:12px;">🚀 Checkout</span>
+    <h1 style="color:#fff;">Confirm your order</h1>
+    <p>Review what you're getting, confirm where it's going, and choose how you'll pay.</p>
+  </div>
+</header>
+
+<section class="section">
+  <div class="container" style="max-width:680px;">
+
+    <div id="guardNotice" class="card center" style="display:none;padding:48px 24px;">
+      <div style="font-size:2rem;margin-bottom:10px;">🔒</div>
+      <h3>Log in to check out</h3>
+      <p class="text-muted">You'll need an account to place an order — your cart is saved.</p>
+      <a href="login.html?redirect=checkout.html" class="btn btn-primary">Login / Sign up</a>
+    </div>
+
+    <div id="checkoutBody" style="display:none;">
+
+      <div class="card" style="padding:26px;margin-bottom:20px;">
+        <h3 style="margin-bottom:16px;">Your order</h3>
+        <div id="checkoutItems"></div>
+        <div class="divider"></div>
+        <div class="row-between" style="margin-bottom:6px;">
+          <span class="text-muted">Subtotal</span>
+          <span id="checkoutSubtotal"></span>
+        </div>
+        <div class="row-between" style="margin-bottom:6px;">
+          <span class="text-muted">Delivery fee <small>(flat, town-wide)</small></span>
+          <span>₹20</span>
+        </div>
+        <div class="row-between" style="font-weight:700;font-size:1.1rem;">
+          <span>Total</span>
+          <span id="checkoutTotal"></span>
+        </div>
+      </div>
+
+      <div class="card" style="padding:26px;margin-bottom:20px;">
+        <div class="row-between" style="margin-bottom:4px;">
+          <h3 style="margin:0;">Delivery address</h3>
+          <a href="login.html?redirect=checkout.html" class="btn btn-ghost btn-sm">Change</a>
+        </div>
+        <div id="addressSummary"></div>
+      </div>
+
+      <div class="card" style="padding:26px;margin-bottom:20px;">
+        <h3 style="margin-bottom:14px;">Payment method</h3>
+        <div class="segmented" id="paymentSeg" style="margin-bottom:16px;">
+          <button type="button" class="active" data-val="cod">💵 Cash on Delivery</button>
+          <button type="button" data-val="upi">📱 UPI</button>
+        </div>
+        <div class="field" id="upiField" style="display:none;margin-bottom:0;">
+          <label for="upiId">Your UPI ID (optional)</label>
+          <input type="text" id="upiId" placeholder="yourname@upi">
+          <p class="hint">Demo only — this isn't connected to a real payment processor. Your order is still confirmed as-is; payment is settled with the delivery partner.</p>
+        </div>
+        <p class="hint" id="codHint">Pay in cash when your order arrives.</p>
+      </div>
+
+      <button class="btn btn-primary btn-block" id="placeOrderBtn" onclick="submitOrder(this)">Place order at warp speed 🚀</button>
+    </div>
+
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="brand" style="color:#fff;margin-bottom:10px;"><span class="brand-mark">W</span>WarpX</div>
+        <p>Anything you need, delivered at warp speed.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="food.html">Picasso Cafe</a>
+        <a href="grocery.html">Grocery</a>
+        <a href="medicine.html">Medicine</a>
+        <a href="laundry.html">Laundry</a>
+        <a href="anything.html">Anything Else</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="index.html#about">About</a>
+        <a href="index.html#how">How it works</a>
+        <a href="login.html">Login / Sign up</a>
+        <a href="orders.html">My Orders</a>
+      </div>
+      <div>
+        <h4>Delivery</h4>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Flat ₹20 delivery fee</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 WarpX. A quick-commerce demo for small towns.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="js/cart.js"></script>
+<script src="js/location.js"></script>
+<script src="js/main.js"></script>
+<script>
+function escapeAttr(str) {
+  const div = document.createElement("div");
+  div.textContent = str ?? "";
+  return div.innerHTML;
+}
+
+let paymentMethod = "cod";
+document.getElementById("paymentSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#paymentSeg button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  paymentMethod = btn.dataset.val;
+  const isUpi = paymentMethod === "upi";
+  document.getElementById("upiField").style.display = isUpi ? "block" : "none";
+  document.getElementById("codHint").style.display = isUpi ? "none" : "block";
+});
+
+function renderCheckout() {
+  const cart = getCart();
+  const items = document.getElementById("checkoutItems");
+  items.innerHTML = cart.map((c) => {
+    const meta = SERVICE_META[c.service] || { label: c.service };
+    const priceLine = c.price != null ? "₹" + (c.price * c.qty) : "TBC";
+    return `
+      <div class="row-between" style="padding:6px 0;font-size:.92rem;">
+        <span>${c.qty} × ${escapeAttr(c.name)} <span class="text-muted">(${escapeAttr(meta.label)})</span></span>
+        <span>${priceLine}</span>
+      </div>`;
+  }).join("");
+
+  const subtotal = cartSubtotal();
+  const hasCustom = cart.some((c) => c.price == null);
+  document.getElementById("checkoutSubtotal").textContent = (subtotal > 0 ? "₹" + subtotal : "—") + (hasCustom ? " + custom items" : "");
+  document.getElementById("checkoutTotal").textContent = subtotal > 0 ? "₹" + (subtotal + WARPX_DELIVERY_FEE) : "₹" + WARPX_DELIVERY_FEE + " + custom items";
+
+  const loc = getSavedLocation();
+  const addressBox = document.getElementById("addressSummary");
+  if (loc) {
+    const zoneLabel = loc.zone === "core" ? "Prime warp zone" : "Extended zone";
+    addressBox.innerHTML = `
+      <p class="mb-0" style="font-weight:600;">${escapeAttr(loc.address) || "No landmark added"}</p>
+      <p class="text-muted" style="font-size:.85rem;margin-top:4px;">⚡ ${zoneLabel} · Estimated delivery ${escapeAttr(loc.etaMin)} min</p>
+    `;
+  } else {
+    addressBox.innerHTML = `<p class="text-muted mb-0">No delivery location saved yet — click "Change" above to set one.</p>`;
+  }
+}
+
+async function submitOrder(btn) {
+  const cart = getCart();
+  if (cart.length === 0) return showToast("Your cart is empty.");
+  const user = getWarpxUser();
+  if (!user || !user.id) {
+    window.location.href = "login.html?redirect=checkout.html";
+    return;
+  }
+
+  const upiId = document.getElementById("upiId").value.trim();
+  const paymentLabel = paymentMethod === "upi"
+    ? `UPI${upiId ? " (" + upiId + ")" : ""} — demo, no real payment processed.`
+    : "Cash on delivery.";
+
+  btn.disabled = true;
+  btn.textContent = "Placing order...";
+  try {
+    const res = await fetch("/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.id, items: cart, paymentMethod, upiId: upiId || undefined }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || "Could not place order.");
+      if (res.status === 401) setTimeout(() => { window.location.href = "login.html?redirect=checkout.html"; }, 1200);
+      return;
+    }
+    showOrderModal(data.orderNumber, `${data.etaMin} min`, true, paymentLabel);
+    clearCart();
+  } catch (err) {
+    // No backend reachable — keep the demo usable with a local-only order.
+    const orderNumber = "WPX" + Math.floor(100000 + Math.random() * 900000);
+    const loc = getSavedLocation();
+    const eta = loc && loc.etaMin ? `${loc.etaMin} min` : "20-30 min";
+    showOrderModal(orderNumber, eta, false, paymentLabel);
+    clearCart();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Place order at warp speed 🚀";
+  }
+}
+
+(function guard() {
+  const user = getWarpxUser();
+  const loggedIn = user && user.id;
+  document.getElementById("guardNotice").style.display = loggedIn ? "none" : "block";
+  document.getElementById("checkoutBody").style.display = loggedIn ? "block" : "none";
+  if (loggedIn) renderCheckout();
+})();
+</script>
+</body>
+</html>

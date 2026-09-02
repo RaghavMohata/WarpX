@@ -126,7 +126,7 @@ function renderCartDrawer() {
       <span>Total</span>
       <span>${subtotal > 0 ? "₹" + (subtotal + WARPX_DELIVERY_FEE) : "₹" + WARPX_DELIVERY_FEE + " + custom items"}</span>
     </div>
-    <button class="btn btn-primary btn-block" onclick="placeOrder()">Place order at warp speed 🚀</button>
+    <button class="btn btn-primary btn-block" onclick="goToCheckout()">Proceed to checkout →</button>
   `;
 }
 
@@ -160,14 +160,14 @@ function getWarpxUser() {
   catch (e) { return null; }
 }
 
-function showOrderModal(orderNumber, eta, persisted) {
+function showOrderModal(orderNumber, eta, persisted, paymentLabel) {
   const modalBody = document.getElementById("modalBody");
   if (modalBody) {
     modalBody.innerHTML = `
       <div class="modal-icon">✅</div>
       <h3>Order placed!</h3>
       <p class="text-muted">Order <b>#${orderNumber}</b> is being prepped. At warp speed, expect it in about <b>${eta}</b>.</p>
-      <p class="text-muted" style="font-size:.85rem;">Cash on delivery. ${persisted ? "Saved to your order history." : "This is a local demo checkout — no server was detected, so nothing was saved to a database."}</p>
+      <p class="text-muted" style="font-size:.85rem;">${paymentLabel || "Cash on delivery."} ${persisted ? "Saved to your order history." : "This is a local demo checkout — no server was detected, so nothing was saved to a database."}</p>
       ${persisted ? `<a href="orders.html" class="btn btn-ghost btn-block" style="margin-bottom:10px;">View order history</a>` : ""}
       <button class="btn btn-primary btn-block" onclick="closeModal()">Done</button>
     `;
@@ -175,30 +175,17 @@ function showOrderModal(orderNumber, eta, persisted) {
   document.getElementById("orderModal")?.classList.add("open");
 }
 
-async function placeOrder() {
-  const cart = getCart();
-  if (cart.length === 0) return;
+// Checkout now requires an account — the cart itself stays guest-friendly,
+// but finalizing an order does not. checkout.html does the actual ordering.
+function goToCheckout() {
+  if (getCart().length === 0) return;
   const user = getWarpxUser();
-  const loc = getSavedLocation ? getSavedLocation() : null;
-
-  try {
-    const res = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: user?.id, items: cart }),
-    });
-    if (!res.ok) throw new Error("order save failed");
-    const order = await res.json();
-    showOrderModal(order.orderNumber, `${order.etaMin} min`, true);
-  } catch (err) {
-    // No backend running — keep the demo usable with a local-only order.
-    const orderNumber = "WPX" + Math.floor(100000 + Math.random() * 900000);
-    const eta = loc && loc.etaMin ? `${loc.etaMin} min` : "20-30 min";
-    showOrderModal(orderNumber, eta, false);
+  if (!user || !user.id) {
+    showToast("Log in to check out — your cart is saved.");
+    setTimeout(() => { window.location.href = "login.html?redirect=checkout.html"; }, 900);
+    return;
   }
-
-  clearCart();
-  closeDrawer();
+  window.location.href = "checkout.html";
 }
 
 function closeModal() {

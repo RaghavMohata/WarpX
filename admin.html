@@ -150,6 +150,9 @@ async function loadOrders(manual) {
             <span>Total (₹${o.delivery_fee} delivery incl.)</span>
             <span>₹${o.total}</span>
           </div>
+          <div class="text-muted" style="font-size:.8rem;margin-top:4px;">
+            ${o.payment_method === "upi" ? "📱 UPI" + (o.upi_id ? " (" + esc(o.upi_id) + ")" : "") : "💵 Cash on Delivery"}
+          </div>
           <div class="status-row">
             ${STATUS_STEPS.map((s) => `<button class="status-btn ${o.status === s ? "active" : ""}" onclick="setStatus(${o.id},'${s}')">${s}</button>`).join("")}
           </div>

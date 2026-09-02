@@ -33,8 +33,8 @@
 <header class="page-hero ph-login">
   <div class="container">
     <span class="badge badge-lime" style="margin-bottom:12px;">👋 Welcome</span>
-    <h1 style="color:#fff;">Login or create your account</h1>
-    <p>One quick step — tell us who you are, and where to deliver.</p>
+    <h1 style="color:#fff;" id="loginHeading">Login or create your account</h1>
+    <p id="loginSubheading">One quick step — tell us who you are, and where to deliver.</p>
   </div>
 </header>
 
@@ -281,6 +281,20 @@ window.addEventListener("pointermove", (e) => {
 });
 window.addEventListener("pointerup", () => { dragging = false; });
 
+// ?redirect=checkout.html sends the user back to wherever they came from
+// (e.g. checkout requiring login) instead of always landing on the home page.
+function getRedirectTarget() {
+  const target = new URLSearchParams(window.location.search).get("redirect");
+  return target && /^[a-z0-9_-]+\.html$/i.test(target) ? target : "index.html";
+}
+
+(function showRedirectContext() {
+  if (new URLSearchParams(window.location.search).get("redirect") === "checkout.html") {
+    document.getElementById("loginHeading").textContent = "Log in to complete your order";
+    document.getElementById("loginSubheading").textContent = "Your cart is saved — log in or create an account to check out.";
+  }
+})();
+
 async function completeLogin(btn) {
   const phone = document.getElementById("authPhone").value.trim();
   const password = document.getElementById("authPassword").value;
@@ -316,7 +330,7 @@ async function completeLogin(btn) {
       // browser-only session so the demo still works without the backend.
       localStorage.setItem("warpx_user", JSON.stringify({ name, phone }));
       showToast(`Saved locally (couldn't reach the server) — you're in our ${saved.zone} zone.`);
-      setTimeout(() => { window.location.href = "index.html"; }, 1400);
+      setTimeout(() => { window.location.href = getRedirectTarget(); }, 1400);
       return;
     }
 
@@ -336,7 +350,7 @@ async function completeLogin(btn) {
 
     localStorage.setItem("warpx_user", JSON.stringify({ id: data.id, name: data.name, phone: data.phone }));
     showToast(`Welcome${data.name ? ", " + data.name : ""}! You're in our ${saved.zone} zone (~${saved.etaMin} min delivery).`);
-    setTimeout(() => { window.location.href = "index.html"; }, 1200);
+    setTimeout(() => { window.location.href = getRedirectTarget(); }, 1200);
   } finally {
     btn.disabled = false;
     btn.textContent = "Continue";

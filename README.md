@@ -14,6 +14,16 @@ npm start       # runs server.js — serves the site AND the API
 # then open http://localhost:3000
 ```
 
+### One-click start
+
+Instead of the commands above, you can just double-click a launcher for your OS — it installs dependencies on first run, starts the server, and opens the site in your browser automatically:
+
+- **Windows**: `start.bat`
+- **Mac**: `start.command` (first time only, Finder may warn it's from an "unidentified developer" — right-click → Open once to approve it)
+- **Linux**: `start.sh` (your file manager may need "Allow executing file as program" checked in its Properties first, or run `./start.sh` from a terminal)
+
+Whichever you use, closing that window/terminal (or pressing Ctrl+C in it) stops the server.
+
 Requires **Node.js 22.5+** (for `node:sqlite`). Check with `node -v`; if you're on an older Node, upgrade first — the built-in SQLite module won't be there otherwise. You'll see an "experimental feature" warning in the console when it starts — that's expected, SQLite support is still marked experimental in Node itself, but it's stable enough for local use here.
 
 A `warpx.db` file appears in the project folder on first run — that's your entire database, a single file. Delete it any time to start fresh; it's `.gitignore`d, so it never gets committed. Users, saved locations, and every placed order are persisted there and survive restarts — check `orders.html` after placing an order to see it read back from the database.

@@ -2,3 +2,8 @@ node_modules/
 warpx.db
 warpx.db-*
 .DS_Store
+
+# Local Netlify state, except deploy feature markers
+.netlify/*
+!.netlify/features/
+!.netlify/features/netlify-identity

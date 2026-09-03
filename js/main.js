@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // this button is "my profile" (order history), not "log in again".
   try {
     const user = JSON.parse(localStorage.getItem("warpx_user"));
-    if (user && user.phone) {
+    if (user && (user.email || user.phone)) {
       document.querySelectorAll('a.btn[href="login.html"]').forEach((btn) => {
         btn.textContent = user.name ? `👤 ${user.name.split(" ")[0]}` : "👤 My profile";
         btn.setAttribute("href", "orders.html");
@@ -53,4 +53,21 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-open-cart]").forEach((btn) =>
     btn.addEventListener("click", openDrawer)
   );
+
+  processIdentityCallback();
 });
+
+async function processIdentityCallback() {
+  if (!window.location.hash.includes("_token=")) return;
+  try {
+    const identity = await import("https://esm.sh/@netlify/identity@2.0.0?bundle");
+    const result = await identity.handleAuthCallback();
+    if (!result?.user) return;
+    const user = result.user;
+    localStorage.setItem("warpx_user", JSON.stringify({ id: user.id, name: user.name || "", email: user.email || "" }));
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    showToast(result.type === "confirmation" ? "Email confirmed. You're now logged in." : "You're now logged in.");
+  } catch (error) {
+    showToast(error?.message || "That authentication link is invalid or expired.");
+  }
+}

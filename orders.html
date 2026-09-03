@@ -121,7 +121,7 @@ async function loadOrders() {
           <div class="service-icon" style="background:var(--grad-warp-soft);color:var(--violet);font-size:1.3rem;">👤</div>
           <div>
             <div style="font-weight:700;">${escapeAttr(user.name || "WarpX customer")}</div>
-            <div class="text-muted" style="font-size:.85rem;">${escapeAttr(user.phone)}</div>
+            <div class="text-muted" style="font-size:.85rem;">${escapeAttr(user.email || user.phone || "")}</div>
           </div>
         </div>
         <button class="btn btn-outline btn-sm" onclick="logout()">Log out</button>

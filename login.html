@@ -55,8 +55,8 @@
           <input type="text" id="authName" placeholder="e.g. Priya Sharma">
         </div>
         <div class="field">
-          <label for="authPhone">Mobile number</label>
-          <input type="tel" id="authPhone" placeholder="10-digit mobile number">
+          <label for="authEmail">Email address</label>
+          <input type="email" id="authEmail" placeholder="you@example.com" autocomplete="email">
         </div>
         <div class="field">
           <label for="authPassword">Password</label>
@@ -298,11 +298,12 @@ function getRedirectTarget() {
 })();
 
 async function completeLogin(btn) {
-  const phone = document.getElementById("authPhone").value.trim();
+  const emailInput = document.getElementById("authEmail");
+  const email = emailInput.value.trim().toLowerCase();
   const password = document.getElementById("authPassword").value;
   const mode = document.querySelector("#authSeg button.active").dataset.val; // "login" | "signup"
 
-  if (!phone) return showToast("Enter your mobile number first.");
+  if (!email || !emailInput.checkValidity()) return showToast("Enter a valid email address first.");
   if (!password || password.length < 6) return showToast("Password must be at least 6 characters.");
   if (mode === "signup" && password !== document.getElementById("authConfirmPassword").value) {
     return showToast("Passwords don't match.");
@@ -315,44 +316,33 @@ async function completeLogin(btn) {
   const saved = saveLocation({ ...currentLoc, address });
 
   btn.disabled = true;
-  btn.textContent = "Saving...";
+  btn.textContent = mode === "signup" ? "Creating account..." : "Logging in...";
   try {
-    const endpoint = mode === "signup" ? "/api/auth/signup" : "/api/auth/login";
-    const body = mode === "signup" ? { name, phone, password } : { phone, password };
+    const identity = await import("https://esm.sh/@netlify/identity@2.0.0?bundle");
+    const user = mode === "signup"
+      ? await identity.signup(email, password, { full_name: name })
+      : await identity.login(email, password);
 
-    let res;
-    try {
-      res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } catch (networkErr) {
-      // No server running (e.g. opened as a plain file) — fall back to a
-      // browser-only session so the demo still works without the backend.
-      localStorage.setItem("warpx_user", JSON.stringify({ name, phone }));
-      showToast(`Saved locally (couldn't reach the server) — you're in our ${saved.zone} zone.`);
-      setTimeout(() => { window.location.href = getRedirectTarget(); }, 1400);
+    if (mode === "signup" && !user.confirmedAt) {
+      showToast("Account created. Check your email to confirm it, then log in.");
       return;
     }
 
-    const data = await res.json();
-    if (!res.ok) {
-      // A real rejection (wrong password, duplicate phone, etc.) — never
-      // fall back to a local session here, that would defeat the point.
-      showToast(data.error || "Something went wrong.");
-      return;
-    }
-
-    await fetch(`/api/users/${data.id}/location`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(saved),
-    });
-
-    localStorage.setItem("warpx_user", JSON.stringify({ id: data.id, name: data.name, phone: data.phone }));
-    showToast(`Welcome${data.name ? ", " + data.name : ""}! You're in our ${saved.zone} zone (~${saved.etaMin} min delivery).`);
+    localStorage.setItem("warpx_user", JSON.stringify({ id: user.id, name: user.name || name, email: user.email || email }));
+    showToast(`Welcome${user.name ? ", " + user.name : ""}! You're in our ${saved.zone} zone (~${saved.etaMin} min delivery).`);
     setTimeout(() => { window.location.href = getRedirectTarget(); }, 1200);
+  } catch (error) {
+    if (error?.name === "MissingIdentityError") {
+      showToast("Login is not enabled for this site yet.");
+    } else if (error?.status === 401) {
+      showToast("Invalid email or password.");
+    } else if (error?.status === 403) {
+      showToast(mode === "signup" ? "Signups are not allowed for this site." : "Please confirm your email before logging in.");
+    } else if (error?.status === 422) {
+      showToast("Check your email and password, then try again.");
+    } else {
+      showToast(error?.message || "Authentication failed. Please try again.");
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = "Continue";
@@ -370,7 +360,7 @@ async function completeLogin(btn) {
   const user = JSON.parse(localStorage.getItem("warpx_user") || "null");
   if (user) {
     if (user.name) document.getElementById("authName").value = user.name;
-    if (user.phone) document.getElementById("authPhone").value = user.phone;
+    if (user.email) document.getElementById("authEmail").value = user.email;
   }
 })();
 </script>

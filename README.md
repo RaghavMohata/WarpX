@@ -59,8 +59,7 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 
 | Endpoint | What it does |
 |---|---|
-| `POST /api/auth/signup` | Create an account — phone + password, hashed before it touches the database |
-| `POST /api/auth/login` | Log into an existing account — verifies the password, never the other way around |
+| Netlify Identity | Create and authenticate accounts with email confirmation and managed sessions |
 | `POST /api/users/:id/location` | Save a captured location; computes and returns the delivery zone/ETA server-side via `lib/zone.js` |
 | `GET /api/users/:id/location` | Fetch a user's most recent saved location |
 | `POST /api/orders` | Place an order — **requires a valid, logged-in `userId`** (rejects with 401 otherwise); computes totals server-side, persists the order + line items + payment method |
@@ -75,12 +74,7 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 
 ## Login / sign-up
 
-Real password authentication, not a demo OTP: `login.html` has a password field (with a show/hide toggle) and, when signing up, a confirm-password field. Passwords are never stored or transmitted in the clear — `lib/auth.js` hashes each one with Node's built-in `crypto.scryptSync` and a random per-user salt, and login compares hashes with a timing-safe check (`crypto.timingSafeEqual`) rather than a plain `===`.
-
-A few things this still doesn't do, on purpose (kept in scope for a local demo):
-- No session tokens/cookies — after a successful login the browser just holds `{id, name, phone}` in `localStorage`, the same as before. Anyone with access to that browser's storage can "act as" that logged-in user; there's no way to remotely revoke a session.
-- No rate-limiting on login attempts, no account lockout, no password reset flow.
-- If the server is unreachable at all (network error), it falls back to a local-only session so the demo keeps working — but a wrong password or a duplicate sign-up is always a hard rejection with no fallback, exactly because that's the point of adding a password.
+`login.html` uses Netlify Identity for email-and-password authentication. New accounts receive a confirmation email unless autoconfirm is enabled in the site's Identity settings. The page handles confirmation links, establishes the managed Identity session, and keeps a small display-only user cache in `localStorage` for the existing static navigation and checkout UI.
 
 ## Checkout — login required, address confirm, payment method
 

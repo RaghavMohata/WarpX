@@ -40,7 +40,7 @@ python3 -m http.server 8080
 | Page | Purpose |
 |---|---|
 | `index.html` | Landing page — about WarpX, stats, and buttons into every service |
-| `food.html` | Picasso Cafe's full menu (extracted from the supplied menu PDF), categorized with add-to-cart |
+| `food.html` | Picasso Cafe — collapsed by default, tap the card to expand the full menu (extracted from the supplied menu PDF), categorized with add-to-cart |
 | `grocery.html` | Category-based grocery ordering with quick-add chips + free-text custom items |
 | `medicine.html` | Medicine request form with an **optional** prescription upload |
 | `laundry.html` | Laundry service selection with quantities + pickup scheduling |

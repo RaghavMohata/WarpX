@@ -79,9 +79,19 @@
       <div class="card" style="padding:26px;margin-bottom:20px;">
         <div class="row-between" style="margin-bottom:4px;">
           <h3 style="margin:0;">Delivery address</h3>
-          <a href="login.html?redirect=checkout.html" class="btn btn-ghost btn-sm">Change</a>
+          <button type="button" class="btn btn-ghost btn-sm" id="editAddressToggle" onclick="toggleEditAddress()">Change</button>
         </div>
         <div id="addressSummary"></div>
+
+        <div id="editAddressPanel" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+          <button type="button" class="btn btn-primary btn-sm" style="margin-bottom:10px;" onclick="useGpsInline(this)">📍 Use my current location</button>
+          <div id="gpsStatusInline"></div>
+          <div class="field" style="margin-bottom:10px;">
+            <label for="addressNoteInline">Landmark / house no. / street</label>
+            <input type="text" id="addressNoteInline" placeholder="e.g. Near Sharma Sweets, House #12, Blue Gate">
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" onclick="saveAddressInline(this)">Save location</button>
+        </div>
       </div>
 
       <div class="card" style="padding:26px;margin-bottom:20px;">
@@ -190,6 +200,71 @@ function renderCheckout() {
     `;
   } else {
     addressBox.innerHTML = `<p class="text-muted mb-0">No delivery location saved yet — click "Change" above to set one.</p>`;
+  }
+}
+
+// Editing the delivery address inline, without leaving checkout — a "Change"
+// button that redirected to login.html was a dead end for anyone who was
+// already logged in and just needed to fix a landmark note or re-capture GPS.
+let pendingInlineLoc = null;
+
+function toggleEditAddress() {
+  const panel = document.getElementById("editAddressPanel");
+  const opening = panel.style.display === "none";
+  panel.style.display = opening ? "block" : "none";
+  if (opening) {
+    const loc = getSavedLocation();
+    document.getElementById("addressNoteInline").value = (loc && loc.address) || "";
+    document.getElementById("gpsStatusInline").innerHTML = "";
+    pendingInlineLoc = null;
+  }
+}
+
+function useGpsInline(btn) {
+  const status = document.getElementById("gpsStatusInline");
+  status.innerHTML = `<p class="text-muted" style="font-size:.85rem;margin-bottom:8px;">Locating you…</p>`;
+  btn.disabled = true;
+  requestPreciseLocation(
+    (loc) => {
+      pendingInlineLoc = loc;
+      const z = classifyZone(loc.lat, loc.lng);
+      const zoneLabel = z.zone === "core" ? "Prime warp zone" : "Extended zone";
+      status.innerHTML = `<div class="badge badge-success" style="margin-bottom:8px;">Location captured · accuracy ~${loc.accuracy}m — ${zoneLabel}, ~${z.etaMin} min</div>`;
+      btn.disabled = false;
+    },
+    (msg) => {
+      status.innerHTML = `<div class="badge badge-warn" style="margin-bottom:8px;">${escapeAttr(msg)}</div>`;
+      btn.disabled = false;
+    }
+  );
+}
+
+async function saveAddressInline(btn) {
+  const address = document.getElementById("addressNoteInline").value.trim();
+  const base = pendingInlineLoc || getSavedLocation();
+  if (!base || base.lat == null) {
+    return showToast("Tap \"Use my current location\" first — an address note alone isn't enough to route a delivery.");
+  }
+
+  const user = getWarpxUser();
+  btn.disabled = true;
+  btn.textContent = "Saving...";
+  try {
+    const saved = saveLocation({ lat: base.lat, lng: base.lng, method: base.method, accuracy: base.accuracy, address });
+    if (user && user.id) {
+      await fetch(`/api/users/${user.id}/location`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(saved),
+      }).catch(() => {});
+    }
+    pendingInlineLoc = null;
+    document.getElementById("editAddressPanel").style.display = "none";
+    renderCheckout();
+    showToast("Delivery address updated.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Save location";
   }
 }
 

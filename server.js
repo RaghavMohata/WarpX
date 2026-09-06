@@ -93,10 +93,14 @@ app.post("/api/orders", (req, res) => {
   try {
     const orderInfo = db
       .prepare(
-        `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id, lat, lng, address)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(orderNumber, userId, subtotal, deliveryFee, total, etaMin, method, method === "upi" ? upiId || null : null);
+      .run(
+        orderNumber, userId, subtotal, deliveryFee, total, etaMin, method,
+        method === "upi" ? upiId || null : null,
+        loc ? loc.lat : null, loc ? loc.lng : null, loc ? loc.address : null
+      );
     orderId = orderInfo.lastInsertRowid;
 
     const insertItem = db.prepare(

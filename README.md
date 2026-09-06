@@ -63,7 +63,7 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `POST /api/auth/login` | Log into an existing account — verifies the password, never the other way around |
 | `POST /api/users/:id/location` | Save a captured location; computes and returns the delivery zone/ETA server-side via `lib/zone.js` |
 | `GET /api/users/:id/location` | Fetch a user's most recent saved location |
-| `POST /api/orders` | Place an order — **requires a valid, logged-in `userId`** (rejects with 401 otherwise); computes totals server-side, persists the order + line items + payment method |
+| `POST /api/orders` | Place an order — **requires a valid, logged-in `userId`** (rejects with 401 otherwise); computes totals server-side, persists the order + line items + payment method + a snapshot of the customer's current lat/lng/address |
 | `GET /api/orders/:userId` | Order history for a single user, items included |
 | `GET /api/orders` | **All** orders across every customer, newest first — powers `admin.html` |
 | `PATCH /api/orders/:id/status` | Update an order's status (`placed` → `preparing` → `out for delivery` → `delivered`) |
@@ -117,6 +117,14 @@ To use it: open `admin.html`, enter the PIN (**`1234`** by default), and just le
 - **No delivery-partner dispatch.** Approving a driver application (see below) doesn't yet connect that driver to specific orders — there's no assignment, no "driver en route" status, no driver-facing app. That's the natural next layer once there's more than one delivery partner to coordinate.
 
 None of these need guesswork to fix — they need real accounts, a real push/SMS provider, and (eventually) a driver-facing app — each a genuine infrastructure decision rather than something to fake locally. Happy to build any of them next; they're called out here instead of quietly pretended-away.
+
+## Getting precise coordinates for a placed order
+
+Every order card in `admin.html` now has a **"📍 Navigate to customer"** button, plus the raw coordinates printed next to it as text. Clicking it opens Google Maps with turn-by-turn directions straight to that customer's exact location (`https://www.google.com/maps/dir/?api=1&destination=lat,lng`) — on a phone this opens the Google Maps app directly if it's installed. This needs **no Google Maps API key, no billing account, no setup** — it's a plain URL format Google Maps supports for free, so it works immediately with what's already built.
+
+Where the coordinates actually come from: `login.html`'s location step (GPS tap, dragged pin, or landmark pick — see below) captures a precise lat/lng and saves it to the `locations` table. Previously that was only ever used to *compute* the zone/ETA shown at login — it was never attached to the order itself, so there was no way to look up a specific order's exact location afterward. Placing an order now takes a **snapshot** of the customer's most recent lat/lng/address directly onto that order row, so it stays accurate for that order even if the customer's saved location changes later (e.g. they move house and update it before their next order).
+
+If an order shows "⚠ No location on file" instead of the navigate button, it means that customer placed the order without ever completing the location step (shouldn't normally happen given the login flow, but could if their account predates this feature, or the request was a raw API call without a location saved first).
 
 ## Delivery drivers — "Work With Us"
 

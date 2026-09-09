@@ -20,6 +20,11 @@
   #pinScreen{ min-height:80vh; display:flex; align-items:center; justify-content:center; padding:24px; }
   .stale-tag{ font-size:.7rem; font-weight:700; color:var(--danger); text-transform:uppercase; letter-spacing:.03em; }
   .drv-card{ padding:20px 22px; margin-bottom:14px; }
+  .earn-row{ display:flex; align-items:baseline; justify-content:space-between; gap:14px; padding:5px 0; font-size:.9rem; }
+  .earn-row small{ display:block; font-size:.74rem; color:var(--muted); }
+  .earn-row b{ white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .earn-total{ font-size:1rem; font-weight:700; }
+  .earn-total b{ font-size:1.1rem; }
   .service-filter{ margin-bottom:16px; flex-wrap:wrap; }
 </style>
 </head>
@@ -54,6 +59,7 @@
   <div class="segmented" id="mainTabs" style="margin-bottom:18px;">
     <button type="button" class="active" data-tab="orders">📦 Orders</button>
     <button type="button" data-tab="drivers">🚴 Drivers <span id="driverBadge" class="badge badge-lime" style="display:none;margin-left:4px;"></span></button>
+    <button type="button" data-tab="earnings">💰 Earnings</button>
   </div>
 
   <div id="ordersPanel">
@@ -66,6 +72,16 @@
       <button type="button" data-val="anything">✨ Anything</button>
     </div>
     <div id="ordersList"></div>
+  </div>
+
+  <div id="earningsPanel" style="display:none;">
+    <div class="segmented service-filter" id="periodFilter">
+      <button type="button" class="active" data-val="today">Today</button>
+      <button type="button" data-val="week">Last 7 days</button>
+      <button type="button" data-val="month">Last 30 days</button>
+      <button type="button" data-val="all">All time</button>
+    </div>
+    <div id="earningsBody"></div>
   </div>
 
   <div id="driversPanel" style="display:none;">
@@ -203,7 +219,17 @@ document.getElementById("mainTabs").addEventListener("click", (e) => {
   currentTab = btn.dataset.tab;
   document.getElementById("ordersPanel").style.display = currentTab === "orders" ? "block" : "none";
   document.getElementById("driversPanel").style.display = currentTab === "drivers" ? "block" : "none";
+  document.getElementById("earningsPanel").style.display = currentTab === "earnings" ? "block" : "none";
   refreshCurrentTab();
+});
+
+document.getElementById("periodFilter").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#periodFilter button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  earningsPeriod = btn.dataset.val;
+  renderEarnings();
 });
 
 document.getElementById("serviceFilter").addEventListener("click", (e) => {
@@ -226,7 +252,76 @@ document.getElementById("driverFilter").addEventListener("click", (e) => {
 
 function refreshCurrentTab() {
   if (currentTab === "orders") loadOrders(true);
+  else if (currentTab === "earnings") loadEarnings();
   else loadDrivers(true);
+}
+
+/* ---- Earnings -----------------------------------------------------------
+   Deliberately separates what customers paid from what WarpX keeps. Most of
+   an order's subtotal is the cafe's or the shop's money passing through. */
+let earningsPeriod = "today";
+let lastEarnings = null;
+
+async function loadEarnings() {
+  try {
+    const res = await fetch("/api/admin/earnings");
+    if (!res.ok) throw new Error("failed");
+    lastEarnings = await res.json();
+    renderEarnings();
+  } catch (e) {
+    document.getElementById("earningsBody").innerHTML =
+      `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">🛰️</div><h3>Can't reach the server</h3><p class="text-muted mb-0">The WarpX backend needs to be running for earnings.</p></div>`;
+  }
+}
+
+const money = (n) => "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+
+function renderEarnings() {
+  if (!lastEarnings) return;
+  const d = lastEarnings[earningsPeriod];
+  const label = { today: "today", week: "in the last 7 days", month: "in the last 30 days", all: "all time" }[earningsPeriod];
+  const marginPct = d.revenue ? Math.round((d.net / d.revenue) * 100) : 0;
+
+  document.getElementById("earningsBody").innerHTML = `
+    <div class="card" style="padding:26px;margin-bottom:16px;">
+      <span class="text-muted" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;">What WarpX kept ${esc(label)}</span>
+      <div style="font-size:2.4rem;font-weight:800;letter-spacing:-.02em;margin:4px 0 2px;">${money(d.net)}</div>
+      <p class="text-muted mb-0" style="font-size:.86rem;">
+        from ${d.orders} order${d.orders === 1 ? "" : "s"} · ${money(d.gross)} collected from customers ·
+        ${marginPct}% of WarpX revenue kept after driver pay
+      </p>
+    </div>
+
+    <div class="grid grid-2" style="gap:16px;margin-bottom:16px;">
+      <div class="card" style="padding:22px;">
+        <h3 style="margin:0 0 12px;font-size:1rem;">Money in</h3>
+        <div class="earn-row"><span>Delivery fees</span><b>${money(d.deliveryFees)}</b></div>
+        <div class="earn-row"><span>Food margin <small>₹${lastEarnings.foodMarginPerItem}/item on cafe orders</small></span><b>${money(d.foodMargin)}</b></div>
+        <div class="divider" style="margin:10px 0;"></div>
+        <div class="earn-row earn-total"><span>WarpX revenue</span><b>${money(d.revenue)}</b></div>
+      </div>
+      <div class="card" style="padding:22px;">
+        <h3 style="margin:0 0 12px;font-size:1rem;">Money out</h3>
+        <div class="earn-row"><span>Driver pay <small>${d.deliveries} deliveries, base + tier bonus</small></span><b>${money(d.driverPay)}</b></div>
+        <div class="earn-row"><span class="text-muted">Goods cost <small>paid to the cafe / shop</small></span><b class="text-muted">${money(d.goods - d.foodMargin)}</b></div>
+        <div class="divider" style="margin:10px 0;"></div>
+        <div class="earn-row earn-total"><span>Net kept</span><b>${money(d.net)}</b></div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:22px;">
+      <h3 style="margin:0 0 10px;font-size:1rem;">How this is worked out</h3>
+      <p class="text-muted" style="font-size:.87rem;line-height:1.6;margin:0 0 10px;">
+        Customers paid <b>${money(d.gross)}</b>, but most of that isn't yours — <b>${money(d.goods - d.foodMargin)}</b> of it is
+        the cafe's and the shops' money passing through. What WarpX actually earns is the
+        <b>delivery fee</b> on every order plus the <b>₹${lastEarnings.foodMarginPerItem} per item</b> built into Picasso Cafe's listed prices.
+      </p>
+      <p class="text-muted" style="font-size:.87rem;line-height:1.6;margin:0;">
+        Driver pay comes out of that: ₹${lastEarnings.basePerDelivery} base per delivery plus each driver's end-of-day
+        tier percentage of the fees they collected. It's settled per driver per day, the same way the Driver Hub shows it,
+        because the tier a driver finishes on pays for their whole day.
+      </p>
+    </div>`;
 }
 
 const STATUS_STEPS = ["placed", "preparing", "out for delivery", "delivered"];

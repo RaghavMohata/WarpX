@@ -329,6 +329,83 @@ app.post("/api/drivers", (req, res) => {
 });
 
 // All driver applications, newest first — owner dashboard use.
+/* ---- Owner earnings ------------------------------------------------------
+   What WarpX actually keeps, as opposed to what customers hand over. Most of
+   an order's subtotal belongs to the cafe or the shop it came from — the only
+   parts that are WarpX's are the delivery fee and the margin baked into
+   Picasso Cafe's listed prices. Driver pay comes straight back out of that. */
+
+// Must match the markup already added into js/menu-data.js prices.
+const FOOD_MARGIN_PER_ITEM = 15;
+
+function earningsBetween(sinceExpr) {
+  // sinceExpr is a SQLite date() expression, or null for all time.
+  const dayCol = "date(COALESCE(o.delivered_at, o.created_at), 'localtime')";
+  const where = sinceExpr ? `AND ${dayCol} >= ${sinceExpr}` : "";
+
+  const totals = db
+    .prepare(
+      `SELECT COUNT(*) AS orders,
+              COALESCE(SUM(o.total), 0) AS gross,
+              COALESCE(SUM(o.subtotal), 0) AS goods,
+              COALESCE(SUM(o.delivery_fee), 0) AS fees
+       FROM orders o WHERE 1=1 ${where}`
+    )
+    .get();
+
+  // Margin applies per priced cafe item; custom cafe requests carry no price
+  // yet, so they carry no margin either.
+  const margin = db
+    .prepare(
+      `SELECT COALESCE(SUM(oi.qty), 0) AS units
+       FROM order_items oi JOIN orders o ON o.id = oi.order_id
+       WHERE oi.service = 'food' AND oi.price IS NOT NULL ${where}`
+    )
+    .get().units * FOOD_MARGIN_PER_ITEM;
+
+  /* Driver pay is settled per driver per day, because the tier that pays is
+     the one they finished that day on — so it cannot be derived from a single
+     total and has to be grouped the same way the Driver Hub groups it. */
+  const dayRows = db
+    .prepare(
+      `SELECT o.driver_id AS driverId, ${dayCol} AS day,
+              COUNT(*) AS n, COALESCE(SUM(o.delivery_fee), 0) AS fees
+       FROM orders o
+       WHERE o.status = 'delivered' AND o.driver_id IS NOT NULL ${where}
+       GROUP BY o.driver_id, day`
+    )
+    .all();
+  const driverPay = dayRows.reduce(
+    (sum, r) => sum + payFor({ deliveries: r.n, feeTotal: r.fees, percent: tierFor(r.n).percent }).total,
+    0
+  );
+
+  const revenue = totals.fees + margin;
+  const round = (v) => Math.round(v * 100) / 100;
+  return {
+    orders: totals.orders,
+    gross: round(totals.gross),
+    goods: round(totals.goods),
+    deliveryFees: round(totals.fees),
+    foodMargin: round(margin),
+    revenue: round(revenue),
+    driverPay: round(driverPay),
+    net: round(revenue - driverPay),
+    deliveries: dayRows.reduce((n, r) => n + r.n, 0),
+  };
+}
+
+app.get("/api/admin/earnings", (req, res) => {
+  res.json({
+    today: earningsBetween("date('now', 'localtime')"),
+    week: earningsBetween("date('now', 'localtime', '-6 days')"),
+    month: earningsBetween("date('now', 'localtime', '-29 days')"),
+    all: earningsBetween(null),
+    foodMarginPerItem: FOOD_MARGIN_PER_ITEM,
+    basePerDelivery: BASE_PAY_PER_DELIVERY,
+  });
+});
+
 app.get("/api/drivers", (req, res) => {
   res.json(db.prepare("SELECT * FROM drivers ORDER BY id DESC").all());
 });

@@ -324,11 +324,27 @@ The slot is shown wherever the order is: "booked in" on the confirmation instead
 
 **Not built:** real service hours. The 08:00–22:00 window is a pair of constants in `lib/schedule.js`, not a configurable per-service schedule, and nothing stops an *ASAP* order at 3am — only scheduled ones are bounded. Proper open/closed handling is still on the list.
 
+## Owner earnings (`admin.html` → 💰 Earnings)
+
+The dashboard separates **what customers paid** from **what WarpX keeps**, because on a pickup-and-drop service those are very different numbers — most of an order's subtotal is the cafe's or the shop's money passing through.
+
+```
+WarpX revenue  =  delivery fees  +  food margin
+Net kept       =  WarpX revenue  −  driver pay
+```
+
+- **Delivery fees** — the ₹20–₹40 charged per order, by basket size.
+- **Food margin** — **₹15 per item** built into Picasso Cafe's listed prices (`FOOD_MARGIN_PER_ITEM` in `server.js`, which must stay in step with the prices in `js/menu-data.js`). Only priced cafe items count: a custom cafe request has no price yet, so it carries no margin, and grocery/medicine/laundry items carry none either.
+- **Driver pay** — settled **per driver per day**, not from a single running total, because the tier a driver finishes a day on pays for that whole day. The earnings panel groups it exactly the way the Driver Hub does, so the two can never disagree.
+
+Four periods: today, 7 days, 30 days, all time. The panel also explains its own arithmetic in plain words underneath, naming how much of the gross belongs to the cafe rather than to you.
+
 ## Known limitations
 
 Things that are genuinely not solved yet, written down so they don't get rediscovered as surprises.
 
 - **The server trusts item prices sent by the browser.** `POST /api/orders` computes the subtotal from the `price` on each item in the request body (`server.js`), so a crafted request can order a ₹250 item for ₹1. The *delivery fee* is now safe — it's always recomputed server-side from that subtotal via `lib/fee.js` — but the subtotal it's computed from is not. The real fix is a server-side catalog: the browser sends item IDs and quantities, the server looks up prices itself, and only genuinely custom ("anything else") items stay unpriced until you price them.
+- **`GET /api/admin/earnings` has no auth**, like every other endpoint here — anyone who can reach the server can read your revenue and driver costs. Same root cause as the admin PIN below.
 - **The admin PIN is in the page.** `ADMIN_PIN` is a constant in `admin.html`, visible in view-source, and the API behind it has no auth at all — `GET /api/orders` returns every customer's name, phone, address and coordinates to anyone who requests it. That's fine on localhost; it is a data leak the moment the site is reachable from the internet.
 - **Driver sign-in identifies rather than authenticates** — see the caveat under The Driver Hub.
 - **Ownership checks trust a client-supplied `userId`.** The address endpoints scope every read and write to `user_id`, which stops accidents and casual tampering, but since there are no sessions or tokens a crafted request can still claim to be another user. Real sessions would fix this everywhere at once.

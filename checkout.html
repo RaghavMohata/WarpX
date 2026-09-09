@@ -67,9 +67,10 @@
           <span id="checkoutSubtotal"></span>
         </div>
         <div class="row-between" style="margin-bottom:6px;">
-          <span class="text-muted">Delivery fee <small>(flat, town-wide)</small></span>
-          <span>₹20</span>
+          <span class="text-muted">Delivery fee <small>(by order size)</small></span>
+          <span id="checkoutFee"></span>
         </div>
+        <div id="checkoutFeeNudge"></div>
         <div class="row-between" style="font-weight:700;font-size:1.1rem;">
           <span>Total</span>
           <span id="checkoutTotal"></span>
@@ -140,7 +141,7 @@
       </div>
       <div>
         <h4>Delivery</h4>
-        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Flat ₹20 delivery fee</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Delivery ₹20–₹40, by order size</span>
         <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
       </div>
     </div>
@@ -150,6 +151,7 @@
   </div>
 </footer>
 
+<script src="lib/fee.js"></script>
 <script src="js/cart.js"></script>
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
@@ -189,7 +191,10 @@ function renderCheckout() {
   const hasCustom = cart.some((c) => c.price == null);
   const customSuffix = hasCustom ? " + custom items" : "";
   document.getElementById("checkoutSubtotal").textContent = (subtotal > 0 ? "₹" + subtotal : "—") + customSuffix;
-  document.getElementById("checkoutTotal").textContent = "₹" + (subtotal + WARPX_DELIVERY_FEE) + customSuffix;
+  const fee = feeFor(subtotal);
+  document.getElementById("checkoutFee").textContent = "₹" + fee;
+  document.getElementById("checkoutFeeNudge").innerHTML = renderFeeNudge(nextFeeStep(subtotal), fee, hasCustom);
+  document.getElementById("checkoutTotal").textContent = "₹" + (subtotal + fee) + customSuffix;
 
   const loc = getSavedLocation();
   const addressBox = document.getElementById("addressSummary");

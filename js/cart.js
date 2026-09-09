@@ -1,5 +1,6 @@
-/* WarpX cart — shared across every service page via localStorage. */
-const WARPX_DELIVERY_FEE = 20;
+/* WarpX cart — shared across every service page via localStorage.
+   Delivery pricing comes from lib/fee.js, which every page loads before this
+   one, so the cart quotes exactly what the server will charge. */
 const CART_KEY = "warpx_cart";
 
 function getCart() {
@@ -113,21 +114,37 @@ function renderCartDrawer() {
 
   const subtotal = cartSubtotal();
   const hasCustom = cart.some((c) => c.price == null);
+  const fee = feeFor(subtotal);
+  const step = nextFeeStep(subtotal);
   foot.innerHTML = `
     <div class="row-between" style="margin-bottom:8px;">
       <span class="text-muted">Subtotal</span>
       <span>${subtotal > 0 ? "₹" + subtotal : "—"}${hasCustom ? " + custom items" : ""}</span>
     </div>
     <div class="row-between" style="margin-bottom:8px;">
-      <span class="text-muted">Delivery fee <small>(flat, town-wide)</small></span>
-      <span>₹${WARPX_DELIVERY_FEE}</span>
+      <span class="text-muted">Delivery fee <small>(by order size)</small></span>
+      <span>₹${fee}</span>
     </div>
+    ${renderFeeNudge(step, fee, hasCustom)}
     <div class="row-between" style="font-weight:700;font-size:1.05rem;margin-bottom:16px;">
       <span>Total</span>
-      <span>${subtotal > 0 ? "₹" + (subtotal + WARPX_DELIVERY_FEE) : "₹" + WARPX_DELIVERY_FEE + " + custom items"}</span>
+      <span>${subtotal > 0 ? "₹" + (subtotal + fee) : "₹" + fee + " + custom items"}</span>
     </div>
     <button class="btn btn-primary btn-block" onclick="goToCheckout()">Proceed to checkout →</button>
   `;
+}
+
+/* The line that turns the slab table into a reason to add one more item.
+   Shown in the cart drawer and on checkout, so it lives here rather than
+   being written out twice. */
+function renderFeeNudge(step, fee, hasCustom) {
+  const custom = hasCustom
+    ? `<div class="fee-note">Custom items aren't priced yet, so they don't count toward the slab — we'll confirm the final fee once we price them.</div>`
+    : "";
+  const main = step
+    ? `<div class="fee-nudge">Add <b>₹${step.addMore}</b> more and delivery drops to <b>₹${step.fee}</b> <span>· save ₹${step.saves}</span></div>`
+    : `<div class="fee-nudge fee-nudge-win">You're on our cheapest delivery rate — ₹${fee} 🎉</div>`;
+  return main + custom;
 }
 
 function escapeHtml(str) {

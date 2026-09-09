@@ -7,6 +7,7 @@ const db = require("./db");
 const { classifyZone } = require("./lib/zone");
 const { hashPassword, verifyPassword } = require("./lib/auth");
 const { tierFor } = require("./lib/tier");
+const { feeFor } = require("./lib/fee");
 
 const app = express();
 app.use(express.json());
@@ -90,7 +91,9 @@ app.post("/api/orders", (req, res) => {
   const method = paymentMethod === "upi" ? "upi" : "cod";
 
   const subtotal = items.reduce((sum, it) => sum + (Number(it.price) || 0) * (it.qty || 1), 0);
-  const deliveryFee = 20;
+  // Priced server-side from the real subtotal — the browser's figure is only
+  // ever a preview, never what gets charged.
+  const deliveryFee = feeFor(subtotal);
   const total = subtotal + deliveryFee;
   const loc = getLatestLocation(userId);
   const etaMin = loc ? loc.eta_min : "20-30";

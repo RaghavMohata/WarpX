@@ -479,3 +479,27 @@ footer a:hover{ color:#fff; }
 @media (prefers-reduced-motion: reduce){
   .reveal{ opacity:1; transform:none; transition:none; }
 }
+
+/* ---- Delivery fee nudge -------------------------------------------------
+   The line in the cart and on checkout that tells the customer how close
+   they are to a cheaper delivery slab. */
+.fee-nudge{
+  display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+  background:var(--grad-warp-soft);
+  border:1px dashed rgba(124,58,237,.35);
+  color:var(--violet);
+  border-radius:var(--radius-sm);
+  padding:9px 12px; margin-bottom:10px;
+  font-size:.86rem; line-height:1.35;
+}
+.fee-nudge b{ font-weight:700; }
+.fee-nudge span{ opacity:.75; font-size:.8rem; }
+.fee-nudge-win{
+  background:rgba(132,204,22,.12);
+  border-color:rgba(132,204,22,.45);
+  color:#3f6212;
+}
+.fee-note{
+  font-size:.78rem; color:var(--muted); line-height:1.4;
+  margin:-4px 0 10px;
+}

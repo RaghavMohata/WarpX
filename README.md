@@ -2,7 +2,7 @@
 
 **Anything you need, delivered at warp speed.**
 
-WarpX is a hyperlocal quick-commerce pickup & drop service built for small towns — food, grocery, medicine, laundry, and anything else, all with a single flat delivery fee.
+WarpX is a hyperlocal quick-commerce pickup & drop service built for small towns — food, grocery, medicine, laundry, and anything else, with a delivery fee that scales down as the order grows.
 
 ## Running locally, with the real database
 
@@ -102,7 +102,7 @@ Browsing and building a cart never requires an account — that stays open, like
 
 1. Not logged in → sent to `login.html?redirect=checkout.html` (with a toast explaining why, and the login page's heading changes to "Log in to complete your order"). After logging in or signing up, you land back on `checkout.html` automatically — the `?redirect=` param is generic, so anywhere that needs someone logged in first can reuse it.
 2. Logged in → straight to `checkout.html`, which shows:
-   - **Your order** — items, subtotal, the flat ₹20 delivery fee, total.
+   - **Your order** — items, subtotal, the delivery fee for that basket size (with a nudge showing how much more would unlock the next slab), total.
    - **Delivery address** — your saved location's landmark note and zone/ETA, with a **Change** button that expands inline (no redirect to `login.html` — that was a dead end for anyone already logged in who just needed to fix a typo or refresh their GPS fix). Inline you get two independent things: a "Use my current location" button that re-captures GPS and recomputes the zone/ETA live, and a plain text field for the landmark/house-number note. Editing just the text keeps whatever coordinates you already had; tapping the GPS button replaces them. Both get saved immediately (locally and to the server) — the next order you place uses whatever's current at that moment.
    - **Payment method** — Cash on Delivery, or UPI (an optional UPI ID field, purely informational — see the caveat below).
 3. **Place order** posts to `POST /api/orders`, which itself independently re-checks that `userId` is a real, logged-in account — checking out isn't just hidden by the UI, a direct API call with no `userId` is rejected with a 401 regardless of what the front-end does. I verified this directly (a raw `fetch` to the endpoint with no `userId` returns `{"error":"Please log in to place an order."}`, status 401).
@@ -182,7 +182,22 @@ The owner's dashboard now also shows which driver is carrying each order, or "no
 
 ## Delivery model
 
-- Flat **₹20** delivery fee on every order, every service.
+- Delivery is priced by order size, from **₹40** down to **₹20**:
+
+| Order subtotal | Delivery fee |
+| --- | --- |
+| Under ₹100 | ₹40 |
+| ₹100 – ₹199 | ₹35 |
+| ₹200 – ₹399 | ₹30 |
+| ₹400 and above | ₹20 |
+
+  The ladder lives in **`lib/fee.js`**, which is both `require`d by `server.js` and served straight to the browser as `<script src="lib/fee.js">`. That's deliberate: the fee used to be a `20` hardcoded in two unrelated places (`js/cart.js` and `server.js`), which is exactly how a cart ends up quoting one price while the server charges another. One file, both sides, no drift.
+
+  **The server always re-prices from its own subtotal.** The browser's figure is only ever a preview — `POST /api/orders` ignores any `deliveryFee` in the request body and calls `feeFor()` itself, so a hand-crafted request can't buy a ₹1 delivery. (There's a bigger, still-open version of this problem: the server currently trusts the *item prices* the browser sends. See "Known limitations".)
+
+  The cart and checkout both show a nudge — *"Add ₹140 more and delivery drops to ₹20 · save ₹10"* — because the whole point of a slab ladder is to make the next slab feel worth reaching. Once you're on the cheapest rate it turns into a confirmation instead.
+
+  **Unpriced custom items don't count toward the slab.** A "get me a phone charger" request has no price until you price it, so it contributes ₹0 to the subtotal and the order lands in the ₹40 band. The cart says so in plain words rather than quietly quoting a number that later changes.
 - Service area quoted as **15–21.92 km²**. Treated as a circle (`area = πr²`), that's a delivery radius of **~2.19 km (core zone)** to **~2.64 km (extended zone)** from the dark store — used by the login page's zone check (`js/location.js`).
 - `DARK_STORE` coordinates in `js/location.js` are a placeholder — replace with your real store location before going live.
 
@@ -211,6 +226,17 @@ This keeps the precision (real coordinates, an accurate radius check) while keep
 - **Floating hero blobs + parallax** — every hero banner (the homepage's tall `.hero`, and every inner page's shorter `.page-hero`) gets 2–3 soft blurred gradient blobs injected automatically by `initHeroBlobs()` — no per-page HTML needed. They drift slowly on their own (a looping CSS animation) and shift position at a slower rate than the page as you scroll (a JS-driven parallax effect), giving the hero a sense of depth instead of a flat gradient.
 - **Count-up numbers** — the homepage's hero stats (₹20, service area, service count) count up from 0 the moment they scroll into view, instead of just appearing as static text. Add `data-countup="20"` (plus optional `data-prefix`/`data-suffix`/`data-decimals`) to any element to get this for free elsewhere — `initCountUp()` in `js/main.js` handles the rest, and falls back to the plain pre-written text if `prefers-reduced-motion` is set.
 - **3D tilt on service tiles** — the five homepage service cards tilt toward the cursor as you move over them (a subtle `perspective`/`rotateX`/`rotateY` effect driven by `initTiltCards()`), snapping back smoothly on mouse-leave. Skipped on touch devices (no real hover to track) and under `prefers-reduced-motion`.
+
+## Known limitations
+
+Things that are genuinely not solved yet, written down so they don't get rediscovered as surprises.
+
+- **The server trusts item prices sent by the browser.** `POST /api/orders` computes the subtotal from the `price` on each item in the request body (`server.js`), so a crafted request can order a ₹250 item for ₹1. The *delivery fee* is now safe — it's always recomputed server-side from that subtotal via `lib/fee.js` — but the subtotal it's computed from is not. The real fix is a server-side catalog: the browser sends item IDs and quantities, the server looks up prices itself, and only genuinely custom ("anything else") items stay unpriced until you price them.
+- **The admin PIN is in the page.** `ADMIN_PIN` is a constant in `admin.html`, visible in view-source, and the API behind it has no auth at all — `GET /api/orders` returns every customer's name, phone, address and coordinates to anyone who requests it. That's fine on localhost; it is a data leak the moment the site is reachable from the internet.
+- **Driver sign-in identifies rather than authenticates** — see the caveat under The Driver Hub.
+- **No rate limiting** on any endpoint, so order spam and login brute-forcing are both open.
+- **No phone verification at sign-up**, so a wrong or fake number means an order nobody can chase.
+- **`warpx.db` has no backup.** It's a single file; losing it loses every order, customer and driver.
 
 ## Notes
 

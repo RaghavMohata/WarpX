@@ -46,6 +46,7 @@ db.exec(`
     driver_id INTEGER REFERENCES drivers(id),
     delivery_otp TEXT,
     scheduled_for TEXT,
+    delivered_at TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -98,7 +99,7 @@ db.exec(`
 for (const col of ["password_hash TEXT", "password_salt TEXT"]) {
   try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch (e) {}
 }
-for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)", "delivery_otp TEXT", "address_label TEXT", "scheduled_for TEXT"]) {
+for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)", "delivery_otp TEXT", "address_label TEXT", "scheduled_for TEXT", "delivered_at TEXT"]) {
   try { db.exec(`ALTER TABLE orders ADD COLUMN ${col}`); } catch (e) {}
 }
 
@@ -106,5 +107,7 @@ for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL
 // predates the column it indexes.
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_orders_driver_id ON orders(driver_id)"); } catch (e) {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_orders_scheduled_for ON orders(scheduled_for)"); } catch (e) {}
+// The daily tier count filters on this every time a driver page refreshes.
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_orders_delivered_at ON orders(delivered_at)"); } catch (e) {}
 
 module.exports = db;

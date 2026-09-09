@@ -30,6 +30,30 @@
   .prog-tick{ position:absolute; transform:translateX(-50%); text-align:center; font-size:.72rem; color:rgba(255,255,255,.65); }
   .prog-tick.done{ color:var(--lime); font-weight:700; }
   .prog-tick i{ display:block; width:2px; height:7px; background:currentColor; margin:0 auto 4px; border-radius:2px; opacity:.8; }
+  .reset-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:10px; }
+  .reset-chip{ display:inline-flex; align-items:center; gap:5px; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
+    color:#fff; font-size:.78rem; padding:5px 11px; border-radius:999px; }
+  .reset-chip b{ font-variant-numeric:tabular-nums; letter-spacing:.02em; }
+  .reset-note{ font-size:.75rem; color:rgba(255,255,255,.6); }
+
+  .pay-card{ padding:24px; margin-bottom:18px; }
+  .pay-total{ display:flex; align-items:baseline; gap:10px; margin:6px 0 16px; }
+  .pay-total span{ font-size:2.1rem; font-weight:800; letter-spacing:-.02em; }
+  .pay-total small{ font-size:.85rem; color:var(--muted); }
+  .pay-split{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .pay-split > div{ background:var(--surface-2); border-radius:var(--radius-sm); padding:12px 14px; }
+  .pay-k{ display:block; font-size:.76rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .pay-v{ display:block; font-size:1.15rem; font-weight:700; margin-top:2px; }
+  .pay-split small{ display:block; font-size:.74rem; color:var(--muted); margin-top:2px; }
+  .pay-nudge{ margin-top:14px; font-size:.87rem; }
+  .pay-steps{ margin:0 0 14px; padding-left:20px; font-size:.87rem; line-height:1.55; }
+  .pay-steps li{ margin-bottom:7px; }
+  .pay-table-wrap{ overflow-x:auto; }
+  .pay-table{ width:100%; border-collapse:collapse; font-size:.84rem; }
+  .pay-table th, .pay-table td{ text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  .pay-table th{ font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+  .pay-table tr.on td{ background:var(--grad-warp-soft); font-weight:700; color:var(--violet); }
+  .pay-foot{ font-size:.76rem; color:var(--muted); margin:10px 0 0; }
   .prog-tick em{ display:block; font-style:normal; font-size:.64rem; opacity:.6; margin-top:1px; white-space:nowrap; }
   .prog-goal{ color:#fff; font-weight:700; }
 
@@ -100,10 +124,46 @@
     </div>
     <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
     <div class="prog-ticks" id="progTicks"></div>
+    <div class="reset-row">
+      <span class="reset-chip">⏳ Today's rate resets in <b id="resetTimer">--:--:--</b></span>
+      <span class="reset-note" id="lifetimeNote"></span>
+    </div>
+  </div>
+
+  <div class="card pay-card">
+    <div class="row-between" style="margin-bottom:2px;">
+      <h3 style="margin:0;">Today's earnings</h3>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="togglePayHelp()" id="payHelpBtn">How is this worked out?</button>
+    </div>
+    <div class="pay-total"><span id="payTotal">₹0</span><small id="payPerDelivery"></small></div>
+    <div class="pay-split">
+      <div><span class="pay-k">Base pay</span><span class="pay-v" id="payBase">₹0</span><small id="payBaseNote"></small></div>
+      <div><span class="pay-k">Tier bonus</span><span class="pay-v" id="payBonus">₹0</span><small id="payBonusNote"></small></div>
+    </div>
+    <div class="pay-nudge" id="payNudge"></div>
+
+    <div id="payHelp" style="display:none;">
+      <div class="divider"></div>
+      <h4 style="margin:0 0 8px;font-size:.92rem;">How your pay works</h4>
+      <ol class="pay-steps">
+        <li><b>Base pay.</b> Every completed delivery pays a flat <b id="helpBase">₹15</b>, whatever tier you're on. This never goes down.</li>
+        <li><b>Tier bonus.</b> On top of that you earn a percentage of the delivery fees you collected today. That percentage is the big number on the bar above.</li>
+        <li><b>More deliveries, higher percentage.</b> The bar climbs as you complete jobs — 5% to start, up to 45% once you've done 25 in a day.</li>
+        <li><b>The tier you finish on pays for the whole day.</b> Reach a new tier and it applies to <i>every</i> delivery you already made today, not just the ones after it. That's why one more job can be worth far more than the job itself.</li>
+        <li><b>It resets each night.</b> At midnight the count returns to zero and you start again at 5% — so the ladder is a daily target, not a rank you keep.</li>
+      </ol>
+      <div class="pay-table-wrap">
+        <table class="pay-table">
+          <thead><tr><th>Tier</th><th>Reach it at</th><th>Your %</th><th>Per delivery*</th></tr></thead>
+          <tbody id="payTableBody"></tbody>
+        </table>
+      </div>
+      <p class="pay-foot">*On a ₹30 delivery fee — base pay plus your share. The actual fee varies from ₹20 to ₹40 with the size of the customer's order, so a bigger basket pays you more too.</p>
+    </div>
   </div>
 
   <div class="stat-row">
-    <div class="card stat-box"><b id="statCompleted">0</b><span>Deliveries completed</span></div>
+    <div class="card stat-box"><b id="statCompleted">0</b><span>Delivered today</span></div>
     <div class="card stat-box"><b id="statActive">0</b><span>On the way now</span></div>
     <div class="card stat-box"><b id="statAvailable">0</b><span>Waiting to be picked up</span></div>
   </div>
@@ -188,6 +248,76 @@ function openDashboard() {
   setInterval(refresh, 10000);
 }
 
+/* ---- Daily reset countdown ---------------------------------------------
+   The server sends seconds remaining rather than a timestamp, so the timer
+   never has to agree with it about timezones. Every refresh re-syncs it. */
+let resetSecondsLeft = null;
+let resetTicker = null;
+
+function startResetCountdown(seconds) {
+  resetSecondsLeft = seconds;
+  paintResetTimer();
+  if (resetTicker) return;
+  resetTicker = setInterval(() => {
+    if (resetSecondsLeft == null) return;
+    resetSecondsLeft -= 1;
+    if (resetSecondsLeft <= 0) {
+      // Midnight passed: pull fresh numbers rather than guessing at the reset.
+      resetSecondsLeft = 0;
+      paintResetTimer();
+      refresh();
+      return;
+    }
+    paintResetTimer();
+  }, 1000);
+}
+
+function paintResetTimer() {
+  const el = document.getElementById("resetTimer");
+  if (!el || resetSecondsLeft == null) return;
+  const s = Math.max(0, resetSecondsLeft);
+  const p2 = (n) => String(n).padStart(2, "0");
+  el.textContent = `${p2(Math.floor(s / 3600))}:${p2(Math.floor((s % 3600) / 60))}:${p2(s % 60)}`;
+}
+
+function togglePayHelp() {
+  const box = document.getElementById("payHelp");
+  const open = box.style.display === "none";
+  box.style.display = open ? "block" : "none";
+  document.getElementById("payHelpBtn").textContent = open ? "Hide the details" : "How is this worked out?";
+}
+
+function renderPay(d) {
+  const p = d.progress, pay = d.pay;
+  document.getElementById("payTotal").textContent = "₹" + pay.total.toFixed(2).replace(/\.00$/, "");
+  document.getElementById("payPerDelivery").textContent = p.completed
+    ? `from ${p.completed} ${p.completed === 1 ? "delivery" : "deliveries"} today · ₹${pay.perDelivery.toFixed(2).replace(/\.00$/, "")} each`
+    : "no deliveries yet today";
+  document.getElementById("payBase").textContent = "₹" + pay.base;
+  document.getElementById("payBaseNote").textContent = `₹${pay.basePerDelivery} × ${p.completed}`;
+  document.getElementById("payBonus").textContent = "₹" + pay.bonus.toFixed(2).replace(/\.00$/, "");
+  document.getElementById("payBonusNote").textContent = `${p.percent}% of today's delivery fees`;
+
+  document.getElementById("payNudge").innerHTML = p.atMax
+    ? `<span class="fee-nudge fee-nudge-win" style="display:block;">Top tier — every delivery today pays ${p.percent}% on top of base 🎉</span>`
+    : `<span class="fee-nudge" style="display:block;">Your next delivery is worth about <b>₹${d.nextDeliveryWorth.toFixed(2).replace(/\.00$/, "")}</b>` +
+      (p.ordersToNext === 1 ? ` — it lifts today's whole rate to <b>${p.nextPercent}%</b>` : ``) + `</span>`;
+
+  document.getElementById("helpBase").textContent = "₹" + pay.basePerDelivery;
+  document.getElementById("payTableBody").innerHTML = p.ladder
+    .map((t) => `
+      <tr class="${t.percent === p.percent ? "on" : ""}">
+        <td>Tier ${t.tier}</td>
+        <td>${t.from === 0 ? "from the start" : t.from + " deliveries"}</td>
+        <td>${t.percent}%</td>
+        <td>₹${(pay.basePerDelivery + (30 * t.percent) / 100).toFixed(2).replace(/\.00$/, "")}</td>
+      </tr>`)
+    .join("");
+
+  document.getElementById("lifetimeNote").textContent =
+    `${d.lifetimeDeliveries} delivered all time`;
+}
+
 function renderProgress(p) {
   document.getElementById("progPct").textContent = p.percent;
   document.getElementById("progTierLabel").textContent = p.atMax
@@ -252,6 +382,8 @@ async function refresh(manual) {
     const available = await availRes.json();
 
     renderProgress(summary.progress);
+    renderPay(summary);
+    startResetCountdown(summary.resetsInSeconds);
     document.getElementById("statCompleted").textContent = summary.progress.completed;
     document.getElementById("statActive").textContent = summary.active.length;
     document.getElementById("statAvailable").textContent = available.length;

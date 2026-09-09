@@ -6,7 +6,7 @@ const path = require("path");
 const db = require("./db");
 const { classifyZone } = require("./lib/zone");
 const { hashPassword, verifyPassword } = require("./lib/auth");
-const { tierFor } = require("./lib/tier");
+const { tierFor, payFor, payIfOneMore, BASE_PAY_PER_DELIVERY } = require("./lib/tier");
 const { feeFor } = require("./lib/fee");
 const { validateSchedule, isDueForDispatch } = require("./lib/schedule");
 
@@ -366,14 +366,41 @@ app.post("/api/drivers/login", (req, res) => {
 
 // A driver's own dashboard data: their progress tier plus the orders they're
 // currently carrying.
+/* The tier ladder resets nightly, so "completed" means completed TODAY.
+   Timestamps are stored UTC (datetime('now')); 'localtime' shifts them into
+   the shop's day before the date comparison, so a delivery at 11pm counts
+   toward that evening rather than the next morning. Legacy rows delivered
+   before delivered_at existed fall back to created_at rather than vanishing. */
+function driverDayStats(driverId) {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(delivery_fee), 0) AS fees
+       FROM orders
+       WHERE driver_id = ? AND status = 'delivered'
+         AND date(COALESCE(delivered_at, created_at), 'localtime') = date('now', 'localtime')`
+    )
+    .get(driverId);
+  const lifetime = db
+    .prepare("SELECT COUNT(*) AS n FROM orders WHERE driver_id = ? AND status = 'delivered'")
+    .get(driverId).n;
+  return { today: row.n, feesToday: row.fees, lifetime };
+}
+
+// Seconds until the count zeroes, so the hub can show a live countdown
+// without having to agree with the server about timezones.
+function secondsUntilReset(now = new Date()) {
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  return Math.max(0, Math.round((midnight.getTime() - now.getTime()) / 1000));
+}
+
 app.get("/api/drivers/:id/summary", (req, res) => {
   const id = Number(req.params.id);
   const driver = db.prepare("SELECT * FROM drivers WHERE id = ?").get(id);
   if (!driver) return res.status(404).json({ error: "Driver not found." });
 
-  const completed = db
-    .prepare("SELECT COUNT(*) AS n FROM orders WHERE driver_id = ? AND status = 'delivered'")
-    .get(id).n;
+  const stats = driverDayStats(id);
+  const progress = tierFor(stats.today);
+  const pay = payFor({ deliveries: stats.today, feeTotal: stats.feesToday, percent: progress.percent });
 
   const active = db
     .prepare("SELECT * FROM orders WHERE driver_id = ? AND status != 'delivered' ORDER BY id ASC")
@@ -382,7 +409,13 @@ app.get("/api/drivers/:id/summary", (req, res) => {
 
   res.json({
     driver: { id: driver.id, name: driver.name, phone: driver.phone, vehicleType: driver.vehicle_type },
-    progress: tierFor(completed),
+    progress,
+    pay,
+    // What one more average-fee delivery would add, promotion included.
+    nextDeliveryWorth: payIfOneMore({ deliveries: stats.today, feeTotal: stats.feesToday, fee: 30 }),
+    basePerDelivery: BASE_PAY_PER_DELIVERY,
+    lifetimeDeliveries: stats.lifetime,
+    resetsInSeconds: secondsUntilReset(),
     active: active.map((o) => ({ ...withoutOtp(o), items: itemsStmt.all(o.id) })),
   });
 });
@@ -428,15 +461,13 @@ app.patch("/api/orders/:id/deliver", (req, res) => {
   }
 
   const info = db
-    .prepare("UPDATE orders SET status = 'delivered' WHERE id = ? AND driver_id = ?")
+    .prepare("UPDATE orders SET status = 'delivered', delivered_at = datetime('now') WHERE id = ? AND driver_id = ?")
     .run(id, driverId);
   if (info.changes === 0) {
     return res.status(403).json({ error: "That order isn't assigned to you." });
   }
-  const completed = db
-    .prepare("SELECT COUNT(*) AS n FROM orders WHERE driver_id = ? AND status = 'delivered'")
-    .get(driverId).n;
-  res.json({ id, status: "delivered", progress: tierFor(completed) });
+  const stats = driverDayStats(driverId);
+  res.json({ id, status: "delivered", progress: tierFor(stats.today) });
 });
 
 const PORT = process.env.PORT || 3000;

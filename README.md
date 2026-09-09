@@ -150,7 +150,9 @@ Applications land in the **Drivers** tab of `admin.html`, filterable by status (
 
 Once you approve someone in the admin dashboard, they can sign in at `driver.html` with the phone number they applied with, and get their own dashboard — separate from the customer site and from your owner dashboard.
 
-**The progress bar.** Five tiers, filling toward a **50% goal**:
+**The progress bar is a daily target.** It counts deliveries completed since local midnight and resets every night — that reset is what makes a 25-delivery ladder mean anything. As a lifetime count it would be climbed once and then sit at the top forever, incentivising nothing. A live countdown on the card shows how long the current day's rate has left, and the driver's lifetime total is still shown beside it so nothing feels erased.
+
+Five tiers, filling toward a **50% goal**:
 
 | Tier | Rate | Unlocked at |
 | --- | --- | --- |
@@ -172,6 +174,35 @@ Two different numbers drive that bar, which matters:
 - `barPercent` is the **fill**, and it advances with *every single delivery*, interpolating between one tier mark and the next. It lands exactly on 15/25/35/45 at deliveries 3/8/15/25.
 
 Using the tier for the fill made the bar look frozen between promotions, which read as broken. Because early tiers are short, each delivery moves the bar a lot at the start (a first delivery is worth ~3.3 points) and less later on — the movement shrinks as the promotions get bigger. The header also shows progress within the current tier ("Tier 2 of 5 · 2/5 toward the next"). Both numbers come from `lib/tier.js` and are computed server-side, so neither can be fudged from the browser.
+
+### How a driver actually gets paid
+
+Two numbers decide it, both in `lib/tier.js`:
+
+```
+BASE_PAY_PER_DELIVERY = ₹15     flat, every delivery, whatever the tier
+tier percentage                  share of the delivery fees collected today
+```
+
+So a day's pay is `(deliveries × ₹15) + (tier% × the day's delivery fees)`.
+
+**The tier reached by the end of the day pays for the whole day** — not just the deliveries made after the promotion. That single rule is what makes the bar worth watching: the delivery that triggers a promotion retroactively lifts every job already done that day, so it can be worth several times a normal one. The Driver Hub quotes this live ("Your next delivery is worth about ₹43.50 — it lifts today's whole rate to 25%"), and `payIfOneMore()` is what computes it.
+
+| Tier | Reach it at | Your % | Per delivery* |
+| --- | --- | --- | --- |
+| 1 | from the start | 5% | ₹16.50 |
+| 2 | 3 deliveries | 15% | ₹19.50 |
+| 3 | 8 deliveries | 25% | ₹22.50 |
+| 4 | 15 deliveries | 35% | ₹25.50 |
+| 5 | 25 deliveries | 45% | ₹28.50 |
+
+\*On a ₹30 delivery fee. Because the fee itself scales ₹20–₹40 with basket size, a bigger customer order pays the driver more too — the two ladders pull in the same direction.
+
+A full day at the top tier (25 deliveries, ₹30 average fee) comes to **₹712.50**. The **"How is this worked out?"** panel in the Driver Hub explains all of this to the driver in plain words, with the same table and their current tier highlighted.
+
+> ⚠️ **`BASE_PAY_PER_DELIVERY` is a business input, not a technical one.** ₹15 is a placeholder chosen to make the tiers land on sensible per-delivery figures — check it against your real margins before paying anyone from it. It and the tier percentages are the only numbers involved, and both live in one file.
+
+**Recording when a delivery happened.** A daily count needs a delivery date, and `status = 'delivered'` alone doesn't carry one, so orders now have `delivered_at`, stamped when the handover OTP is accepted. Timestamps are stored UTC and shifted with SQLite's `'localtime'` before the day comparison, so a delivery at 11pm counts toward that evening rather than the next morning. Orders delivered before this column existed fall back to `created_at` rather than disappearing from the count.
 
 **Why it needed order-claiming.** A progress bar is only worth having if the number behind it is real, so orders now carry a `driver_id`:
 

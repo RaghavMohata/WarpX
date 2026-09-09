@@ -42,6 +42,16 @@
 <section class="section">
   <div class="container" style="max-width:760px;">
     <div id="profileCard"></div>
+
+    <div class="card" id="addressCard" style="padding:26px;margin-bottom:20px;display:none;">
+      <div class="row-between" style="margin-bottom:12px;">
+        <h3 style="margin:0;">Saved addresses</h3>
+        <a href="checkout.html" class="btn btn-ghost btn-sm">Add from checkout →</a>
+      </div>
+      <div id="addressList"></div>
+      <p class="hint" style="margin-top:2px;">Pick which one is your default — that's where an order goes when you don't choose otherwise.</p>
+    </div>
+
     <div id="ordersList"></div>
   </div>
 </section>
@@ -83,6 +93,7 @@
 </footer>
 
 <script src="lib/fee.js"></script>
+<script src="js/addresses.js"></script>
 <script src="js/cart.js"></script>
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
@@ -180,6 +191,68 @@ async function loadOrders() {
 }
 
 loadOrders();
+
+/* The address book in "manage" mode — no radio buttons, since this page isn't
+   placing an order; the point here is naming, tidying and choosing a default. */
+let addressBook = [];
+
+async function loadAddresses() {
+  const user = getWarpxUser();
+  if (!user || !user.id) return;
+  addressBook = await fetchAddresses(user.id);
+  const card = document.getElementById("addressCard");
+  card.style.display = addressBook.length ? "block" : "none";
+  document.getElementById("addressList").innerHTML = addressBook
+    .map((a) => addressCardHtml(a, { mode: "manage" }))
+    .join("");
+}
+
+async function makeAddressDefault(id) {
+  const user = getWarpxUser();
+  try {
+    await updateAddress(id, { userId: user.id, makeDefault: true });
+    await loadAddresses();
+    showToast("Default address updated.");
+  } catch (e) {
+    showToast(e.message);
+  }
+}
+
+async function editAddress(id) {
+  const addr = addressBook.find((a) => a.id === id);
+  if (!addr) return;
+  // A prompt rather than a form: renaming is the only edit worth doing away
+  // from checkout, where the map and GPS capture actually live.
+  const label = prompt("Name this place", addr.label);
+  if (label === null) return;
+  const address = prompt("Landmark / house no. / street", addr.address || "");
+  if (address === null) return;
+  const user = getWarpxUser();
+  try {
+    await updateAddress(id, { userId: user.id, label: label.trim(), address: address.trim() });
+    await loadAddresses();
+    showToast("Address updated.");
+  } catch (e) {
+    showToast(e.message);
+  }
+}
+
+async function removeAddress(id) {
+  const addr = addressBook.find((a) => a.id === id);
+  if (!addr) return;
+  if (!confirm(`Delete "${addr.label}"? This can't be undone.`)) return;
+  const user = getWarpxUser();
+  try {
+    await deleteAddress(id, user.id);
+    if (getSelectedAddressId() === id) setSelectedAddressId(null);
+    await loadAddresses();
+    showToast(`"${addr.label}" deleted.`);
+  } catch (e) {
+    showToast(e.message);
+  }
+}
+
+loadAddresses();
 </script>
 </body>
 </html>

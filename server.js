@@ -77,10 +77,109 @@ app.get("/api/users/:id/location", (req, res) => {
   res.json(getLatestLocation(Number(req.params.id)) || null);
 });
 
+/* ---- Saved addresses (Home / Shop / Mom's) --------------------------------
+   An address book, kept separate from the `locations` capture log: locations
+   records every GPS fix ever taken, addresses holds the handful of named
+   places someone actually orders to. */
+
+// Exactly one address per user carries is_default, so switching has to clear
+// the old one and set the new one together or not at all.
+function setDefaultAddress(userId, addressId) {
+  db.exec("BEGIN");
+  try {
+    db.prepare("UPDATE addresses SET is_default = 0 WHERE user_id = ?").run(userId);
+    db.prepare("UPDATE addresses SET is_default = 1 WHERE id = ? AND user_id = ?").run(addressId, userId);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+function cleanLabel(label) {
+  return String(label || "").trim().slice(0, 24);
+}
+
+app.get("/api/users/:id/addresses", (req, res) => {
+  const rows = db
+    .prepare("SELECT * FROM addresses WHERE user_id = ? ORDER BY is_default DESC, id DESC")
+    .all(Number(req.params.id));
+  res.json(rows);
+});
+
+app.post("/api/users/:id/addresses", (req, res) => {
+  const userId = Number(req.params.id);
+  const { label, address, lat, lng, makeDefault } = req.body || {};
+  if (lat == null || lng == null) {
+    return res.status(400).json({ error: "An address needs coordinates — capture the location first." });
+  }
+  const name = cleanLabel(label);
+  if (!name) return res.status(400).json({ error: "Give this address a name, like Home or Shop." });
+
+  const zoneInfo = classifyZone(lat, lng);
+  const info = db
+    .prepare(
+      `INSERT INTO addresses (user_id, label, address, lat, lng, zone, distance_km, eta_min)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(userId, name, address || null, lat, lng, zoneInfo.zone, zoneInfo.distanceKm, zoneInfo.etaMin);
+
+  // The first address someone saves becomes their default automatically —
+  // otherwise their only saved place still wouldn't be pre-selected.
+  const count = db.prepare("SELECT COUNT(*) AS n FROM addresses WHERE user_id = ?").get(userId).n;
+  if (makeDefault || count === 1) setDefaultAddress(userId, info.lastInsertRowid);
+
+  res.json(db.prepare("SELECT * FROM addresses WHERE id = ?").get(info.lastInsertRowid));
+});
+
+app.patch("/api/addresses/:id", (req, res) => {
+  const id = Number(req.params.id);
+  const { userId, label, address, lat, lng, makeDefault } = req.body || {};
+  const existing = db.prepare("SELECT * FROM addresses WHERE id = ? AND user_id = ?").get(id, Number(userId));
+  if (!existing) return res.status(404).json({ error: "That address isn't yours, or no longer exists." });
+
+  const name = label === undefined ? existing.label : cleanLabel(label);
+  if (!name) return res.status(400).json({ error: "Give this address a name, like Home or Shop." });
+
+  const newLat = lat == null ? existing.lat : lat;
+  const newLng = lng == null ? existing.lng : lng;
+  // Moving the pin changes which zone it's in, so the ETA has to be recomputed
+  // rather than carried over from wherever it used to be.
+  const zoneInfo = classifyZone(newLat, newLng);
+
+  db.prepare(
+    `UPDATE addresses SET label = ?, address = ?, lat = ?, lng = ?, zone = ?, distance_km = ?, eta_min = ?
+     WHERE id = ? AND user_id = ?`
+  ).run(
+    name, address === undefined ? existing.address : address || null,
+    newLat, newLng, zoneInfo.zone, zoneInfo.distanceKm, zoneInfo.etaMin, id, Number(userId)
+  );
+
+  if (makeDefault) setDefaultAddress(Number(userId), id);
+  res.json(db.prepare("SELECT * FROM addresses WHERE id = ?").get(id));
+});
+
+app.delete("/api/addresses/:id", (req, res) => {
+  const id = Number(req.params.id);
+  const userId = Number(req.query.userId || (req.body || {}).userId);
+  const existing = db.prepare("SELECT * FROM addresses WHERE id = ? AND user_id = ?").get(id, userId);
+  if (!existing) return res.status(404).json({ error: "That address isn't yours, or no longer exists." });
+
+  db.prepare("DELETE FROM addresses WHERE id = ? AND user_id = ?").run(id, userId);
+
+  // Deleting the default would leave the user with saved addresses but none
+  // selected, so the next one in line takes over.
+  if (existing.is_default) {
+    const next = db.prepare("SELECT id FROM addresses WHERE user_id = ? ORDER BY id DESC LIMIT 1").get(userId);
+    if (next) setDefaultAddress(userId, next.id);
+  }
+  res.json({ ok: true });
+});
+
 // Place an order — computes totals server-side and persists items.
 // Requires a logged-in account: orders are never anonymous.
 app.post("/api/orders", (req, res) => {
-  const { userId, items, paymentMethod, upiId } = req.body || {};
+  const { userId, items, paymentMethod, upiId, addressId } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "items are required" });
   }
@@ -95,7 +194,18 @@ app.post("/api/orders", (req, res) => {
   // ever a preview, never what gets charged.
   const deliveryFee = feeFor(subtotal);
   const total = subtotal + deliveryFee;
-  const loc = getLatestLocation(userId);
+  /* Where this order is going, in order of preference: the address the
+     customer picked at checkout, their default saved address, and finally the
+     last raw GPS capture — so someone who has never saved an address still
+     orders exactly as they did before. */
+  let chosenAddress = null;
+  if (addressId != null) {
+    chosenAddress = db.prepare("SELECT * FROM addresses WHERE id = ? AND user_id = ?").get(Number(addressId), userId);
+  }
+  if (!chosenAddress) {
+    chosenAddress = db.prepare("SELECT * FROM addresses WHERE user_id = ? AND is_default = 1").get(userId);
+  }
+  const loc = chosenAddress || getLatestLocation(userId);
   const etaMin = loc ? loc.eta_min : "20-30";
   const orderNumber = "WPX" + Math.floor(100000 + Math.random() * 900000);
   // 4-digit handover code, only ever shown to the customer.
@@ -109,14 +219,15 @@ app.post("/api/orders", (req, res) => {
   try {
     const orderInfo = db
       .prepare(
-        `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id, lat, lng, address, delivery_otp)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id, lat, lng, address, delivery_otp, address_label)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         orderNumber, userId, subtotal, deliveryFee, total, etaMin, method,
         method === "upi" ? upiId || null : null,
         loc ? loc.lat : null, loc ? loc.lng : null, loc ? loc.address : null,
-        deliveryOtp
+        deliveryOtp,
+        chosenAddress ? chosenAddress.label : null
       );
     orderId = orderInfo.lastInsertRowid;
 
@@ -133,7 +244,7 @@ app.post("/api/orders", (req, res) => {
     return res.status(400).json({ error: "Could not place order: " + err.message });
   }
 
-  res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed", deliveryOtp });
+  res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed", deliveryOtp, addressLabel: chosenAddress ? chosenAddress.label : null });
 });
 
 // All orders across all customers — for the owner's dashboard (admin.html).

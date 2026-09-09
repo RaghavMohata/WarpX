@@ -78,20 +78,30 @@
       </div>
 
       <div class="card" style="padding:26px;margin-bottom:20px;">
-        <div class="row-between" style="margin-bottom:4px;">
+        <div class="row-between" style="margin-bottom:12px;">
           <h3 style="margin:0;">Delivery address</h3>
-          <button type="button" class="btn btn-ghost btn-sm" id="editAddressToggle" onclick="toggleEditAddress()">Change</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="addAddressToggle" onclick="toggleAddressForm()">+ Add address</button>
         </div>
-        <div id="addressSummary"></div>
 
-        <div id="editAddressPanel" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+        <div id="addressList"></div>
+
+        <div id="addressForm" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+          <h4 id="addressFormTitle" style="margin:0 0 12px;font-size:.95rem;">New address</h4>
           <button type="button" class="btn btn-primary btn-sm" style="margin-bottom:10px;" onclick="useGpsInline(this)">📍 Use my current location</button>
           <div id="gpsStatusInline"></div>
-          <div class="field" style="margin-bottom:10px;">
+          <div class="field" style="margin-bottom:8px;">
+            <label for="addressLabelInline">Name this place</label>
+            <input type="text" id="addressLabelInline" placeholder="Home, Shop, Mom's…" maxlength="24">
+          </div>
+          <div class="chip-row" id="labelChips" style="margin-bottom:12px;"></div>
+          <div class="field" style="margin-bottom:12px;">
             <label for="addressNoteInline">Landmark / house no. / street</label>
             <input type="text" id="addressNoteInline" placeholder="e.g. Near Sharma Sweets, House #12, Blue Gate">
           </div>
-          <button type="button" class="btn btn-primary btn-sm" onclick="saveAddressInline(this)">Save location</button>
+          <div class="flex gap-8" style="flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary btn-sm" onclick="saveAddressInline(this)">Save address</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="cancelAddressForm()">Cancel</button>
+          </div>
         </div>
       </div>
 
@@ -152,6 +162,7 @@
 </footer>
 
 <script src="lib/fee.js"></script>
+<script src="js/addresses.js"></script>
 <script src="js/cart.js"></script>
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
@@ -196,33 +207,112 @@ function renderCheckout() {
   document.getElementById("checkoutFeeNudge").innerHTML = renderFeeNudge(nextFeeStep(subtotal), fee, hasCustom);
   document.getElementById("checkoutTotal").textContent = "₹" + (subtotal + fee) + customSuffix;
 
-  const loc = getSavedLocation();
-  const addressBox = document.getElementById("addressSummary");
-  if (loc) {
-    const zoneLabel = loc.zone === "core" ? "Prime warp zone" : "Extended zone";
-    addressBox.innerHTML = `
-      <p class="mb-0" style="font-weight:600;">${escapeAttr(loc.address) || "No landmark added"}</p>
-      <p class="text-muted" style="font-size:.85rem;margin-top:4px;">⚡ ${zoneLabel} · Estimated delivery ${escapeAttr(loc.etaMin)} min</p>
-    `;
-  } else {
-    addressBox.innerHTML = `<p class="text-muted mb-0">No delivery location saved yet — click "Change" above to set one.</p>`;
+  renderAddressList();
+}
+
+/* ---- Saved addresses ----------------------------------------------------
+   Checkout picks from the address book rather than always shipping to
+   whatever location was captured last. Someone with no saved addresses still
+   checks out exactly as before — the server falls back to their last GPS fix
+   — so this adds a choice without taking the old path away. */
+let pendingInlineLoc = null;
+let addressBook = [];
+let editingAddressId = null;
+
+async function loadAddresses() {
+  const user = getWarpxUser();
+  if (!user || !user.id) return;
+  addressBook = await fetchAddresses(user.id);
+  renderAddressList();
+}
+
+function renderAddressList() {
+  const box = document.getElementById("addressList");
+  if (!box) return;
+
+  if (!addressBook.length) {
+    // No address book yet. If there's a location from sign-up, this order can
+    // still go there — say so plainly and offer to name it for next time.
+    const loc = getSavedLocation();
+    box.innerHTML = loc
+      ? `<div class="addr-card">
+           <div class="addr-body">
+             <div class="addr-title"><span class="addr-icon">📍</span><b>Current location</b></div>
+             <p class="addr-line">${escapeAttr(loc.address) || "No landmark added"}</p>
+             <p class="addr-meta">⚡ ${loc.zone === "core" ? "Prime warp zone" : "Extended zone"} · ${escapeAttr(loc.etaMin)} min</p>
+           </div>
+         </div>
+         <p class="hint" style="margin-top:2px;">This order will go here. Tap <b>+ Add address</b> to save it as Home, Shop or anywhere else — then you can switch between them in one tap.</p>`
+      : `<div class="addr-empty">No delivery address yet. Tap <b>+ Add address</b> to set one — we need coordinates to route a delivery.</div>`;
+    return;
+  }
+
+  const selected = resolveSelectedAddress(addressBook);
+  box.innerHTML = addressBook
+    .map((a) => addressCardHtml(a, { mode: "pick", selectedId: selected ? selected.id : null }))
+    .join("");
+}
+
+function pickAddress(id) {
+  setSelectedAddressId(id);
+  renderAddressList();
+}
+
+async function makeAddressDefault(id) {
+  const user = getWarpxUser();
+  try {
+    await updateAddress(id, { userId: user.id, makeDefault: true });
+    await loadAddresses();
+    showToast("Default address updated.");
+  } catch (e) {
+    showToast(e.message);
   }
 }
 
-// Editing the delivery address inline, without leaving checkout — a "Change"
-// button that redirected to login.html was a dead end for anyone who was
-// already logged in and just needed to fix a landmark note or re-capture GPS.
-let pendingInlineLoc = null;
-
-function toggleEditAddress() {
-  const panel = document.getElementById("editAddressPanel");
+function toggleAddressForm() {
+  const panel = document.getElementById("addressForm");
   const opening = panel.style.display === "none";
-  panel.style.display = opening ? "block" : "none";
-  if (opening) {
-    const loc = getSavedLocation();
-    document.getElementById("addressNoteInline").value = (loc && loc.address) || "";
-    document.getElementById("gpsStatusInline").innerHTML = "";
-    pendingInlineLoc = null;
+  if (opening) openAddressForm(null);
+  else cancelAddressForm();
+}
+
+function openAddressForm(addr) {
+  editingAddressId = addr ? addr.id : null;
+  pendingInlineLoc = null;
+  document.getElementById("addressForm").style.display = "block";
+  document.getElementById("addressFormTitle").textContent = addr ? `Edit "${addr.label}"` : "New address";
+  document.getElementById("addressLabelInline").value = addr ? addr.label : "";
+  document.getElementById("addressNoteInline").value = addr ? addr.address || "" : (getSavedLocation() || {}).address || "";
+  document.getElementById("labelChips").innerHTML = quickLabelChipsHtml("addressLabelInline");
+  document.getElementById("gpsStatusInline").innerHTML = addr
+    ? `<p class="hint" style="margin-bottom:8px;">Keeping this address's saved pin. Tap the button above only if you want to move it.</p>`
+    : "";
+  document.getElementById("addressForm").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function cancelAddressForm() {
+  document.getElementById("addressForm").style.display = "none";
+  editingAddressId = null;
+  pendingInlineLoc = null;
+}
+
+function editAddress(id) {
+  const addr = addressBook.find((a) => a.id === id);
+  if (addr) openAddressForm(addr);
+}
+
+async function removeAddress(id) {
+  const addr = addressBook.find((a) => a.id === id);
+  if (!addr) return;
+  if (!confirm(`Delete "${addr.label}"? This can't be undone.`)) return;
+  const user = getWarpxUser();
+  try {
+    await deleteAddress(id, user.id);
+    if (getSelectedAddressId() === id) setSelectedAddressId(null);
+    await loadAddresses();
+    showToast(`"${addr.label}" deleted.`);
+  } catch (e) {
+    showToast(e.message);
   }
 }
 
@@ -246,31 +336,39 @@ function useGpsInline(btn) {
 }
 
 async function saveAddressInline(btn) {
+  const user = getWarpxUser();
+  if (!user || !user.id) return showToast("Log in first.");
+
+  const label = document.getElementById("addressLabelInline").value.trim();
   const address = document.getElementById("addressNoteInline").value.trim();
-  const base = pendingInlineLoc || getSavedLocation();
+  if (!label) return showToast("Give this place a name — Home, Shop, anything you'll recognise.");
+
+  const existing = editingAddressId ? addressBook.find((a) => a.id === editingAddressId) : null;
+  // Editing keeps the saved pin unless GPS was re-captured; a brand-new
+  // address needs coordinates from somewhere before it can be routed to.
+  const base = pendingInlineLoc || existing || getSavedLocation();
   if (!base || base.lat == null) {
-    return showToast("Tap \"Use my current location\" first — an address note alone isn't enough to route a delivery.");
+    return showToast('Tap "Use my current location" first — a landmark alone isn\'t enough to route a delivery.');
   }
 
-  const user = getWarpxUser();
   btn.disabled = true;
   btn.textContent = "Saving...";
   try {
-    const saved = saveLocation({ lat: base.lat, lng: base.lng, method: base.method, accuracy: base.accuracy, address });
-    if (user && user.id) {
-      await fetch(`/api/users/${user.id}/location`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(saved),
-      }).catch(() => {});
+    if (editingAddressId) {
+      await updateAddress(editingAddressId, { userId: user.id, label, address, lat: base.lat, lng: base.lng });
+      showToast(`"${label}" updated.`);
+    } else {
+      const created = await createAddress(user.id, { label, address, lat: base.lat, lng: base.lng });
+      setSelectedAddressId(created.id); // a just-added address is the one you meant
+      showToast(`"${label}" saved.`);
     }
-    pendingInlineLoc = null;
-    document.getElementById("editAddressPanel").style.display = "none";
-    renderCheckout();
-    showToast("Delivery address updated.");
+    cancelAddressForm();
+    await loadAddresses();
+  } catch (e) {
+    showToast(e.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Save location";
+    btn.textContent = "Save address";
   }
 }
 
@@ -283,6 +381,7 @@ async function submitOrder(btn) {
     return;
   }
 
+  const selectedAddr = resolveSelectedAddress(addressBook);
   const upiId = document.getElementById("upiId").value.trim();
   const paymentLabel = paymentMethod === "upi"
     ? `UPI${upiId ? " (" + upiId + ")" : ""} — demo, no real payment processed.`
@@ -294,7 +393,10 @@ async function submitOrder(btn) {
     const res = await fetch("/api/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: user.id, items: cart, paymentMethod, upiId: upiId || undefined }),
+      body: JSON.stringify({
+        userId: user.id, items: cart, paymentMethod, upiId: upiId || undefined,
+        addressId: selectedAddr ? selectedAddr.id : undefined,
+      }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -325,7 +427,12 @@ async function submitOrder(btn) {
   document.getElementById("guardNotice").style.display = !loggedIn ? "block" : "none";
   document.getElementById("emptyCartNotice").style.display = loggedIn && !hasItems ? "block" : "none";
   document.getElementById("checkoutBody").style.display = loggedIn && hasItems ? "block" : "none";
-  if (loggedIn && hasItems) renderCheckout();
+  if (loggedIn && hasItems) {
+    renderCheckout();
+    // Draws the saved-address picker once the list comes back; renderCheckout
+    // has already painted the fallback, so there's no empty flash.
+    loadAddresses();
+  }
 })();
 </script>
 </body>

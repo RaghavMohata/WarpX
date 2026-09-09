@@ -228,7 +228,7 @@ function orderCard(o, action) {
         </div>
       </div>
       <div class="job-items">${items}</div>
-      <div class="text-muted" style="font-size:.82rem;">${esc(o.address) || "No landmark note given"}</div>
+      <div class="text-muted" style="font-size:.82rem;">${o.address_label ? "<b>" + esc(o.address_label) + "</b> · " : ""}${esc(o.address) || "No landmark note given"}</div>
       <div class="job-actions">${maps}${action}</div>
     </div>`;
 }

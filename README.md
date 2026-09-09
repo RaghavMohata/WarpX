@@ -227,6 +227,35 @@ This keeps the precision (real coordinates, an accurate radius check) while keep
 - **Count-up numbers** — the homepage's hero stats (₹20, service area, service count) count up from 0 the moment they scroll into view, instead of just appearing as static text. Add `data-countup="20"` (plus optional `data-prefix`/`data-suffix`/`data-decimals`) to any element to get this for free elsewhere — `initCountUp()` in `js/main.js` handles the rest, and falls back to the plain pre-written text if `prefers-reduced-motion` is set.
 - **3D tilt on service tiles** — the five homepage service cards tilt toward the cursor as you move over them (a subtle `perspective`/`rotateX`/`rotateY` effect driven by `initTiltCards()`), snapping back smoothly on mouse-leave. Skipped on touch devices (no real hover to track) and under `prefers-reduced-motion`.
 
+## Saved addresses (Home / Shop / Mom's)
+
+Customers keep an address book instead of re-capturing GPS every order.
+
+- **Where they live:** a separate `addresses` table, deliberately *not* the existing `locations` table. `locations` is an append-only log of every GPS fix ever taken; an address book needs a handful of stable rows people name, rename and delete. Mixing the two would have made "delete my old address" mean "delete a history record".
+- **The label is the point.** Home, Shop, Work, Mom's — free text, capped at 24 characters, with quick-pick chips at the point of entry. Common names get a matching icon (🏠 🏪 🏢 👪) so the list is scannable without reading.
+- **Exactly one default per user.** Setting a new one clears the old one inside a transaction, so there is never a moment with two defaults or none. Deleting the default promotes the next address rather than leaving the user with a book and nothing selected.
+- **Zone and ETA are computed server-side** on save via `lib/zone.js`, and recomputed if the pin moves — an address dragged out of the core zone gets the longer ETA rather than keeping a stale one.
+- **Orders record which place they went to.** `orders.address_label` is snapshotted at order time, so the owner dashboard and the Driver Hub show "**Home** · Blue gate, House 12" rather than coordinates alone. Renaming or deleting the address later doesn't rewrite past orders.
+
+### How an order picks its destination
+
+`POST /api/orders` resolves the delivery target in this order:
+
+1. The `addressId` the customer picked at checkout — **only if that address belongs to them**. A request naming someone else's address id is ignored, not honoured.
+2. Their default saved address.
+3. Their last raw GPS capture, exactly as before this feature existed.
+
+That last step is what keeps the change backwards-compatible: an existing customer who has never saved an address checks out precisely as they did before, and checkout says so ("This order will go here") instead of showing an empty picker.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/users/:id/addresses` | List, default first |
+| `POST /api/users/:id/addresses` | Save a new one; the first one becomes the default automatically |
+| `PATCH /api/addresses/:id` | Rename, move the pin, or make it the default |
+| `DELETE /api/addresses/:id` | Remove it, promoting a new default if needed |
+
+Edit and delete are scoped with `WHERE id = ? AND user_id = ?`, so one customer cannot touch another's addresses. That said, `userId` still arrives from the client like everywhere else in this app — see "Known limitations".
+
 ## Known limitations
 
 Things that are genuinely not solved yet, written down so they don't get rediscovered as surprises.
@@ -234,6 +263,7 @@ Things that are genuinely not solved yet, written down so they don't get redisco
 - **The server trusts item prices sent by the browser.** `POST /api/orders` computes the subtotal from the `price` on each item in the request body (`server.js`), so a crafted request can order a ₹250 item for ₹1. The *delivery fee* is now safe — it's always recomputed server-side from that subtotal via `lib/fee.js` — but the subtotal it's computed from is not. The real fix is a server-side catalog: the browser sends item IDs and quantities, the server looks up prices itself, and only genuinely custom ("anything else") items stay unpriced until you price them.
 - **The admin PIN is in the page.** `ADMIN_PIN` is a constant in `admin.html`, visible in view-source, and the API behind it has no auth at all — `GET /api/orders` returns every customer's name, phone, address and coordinates to anyone who requests it. That's fine on localhost; it is a data leak the moment the site is reachable from the internet.
 - **Driver sign-in identifies rather than authenticates** — see the caveat under The Driver Hub.
+- **Ownership checks trust a client-supplied `userId`.** The address endpoints scope every read and write to `user_id`, which stops accidents and casual tampering, but since there are no sessions or tokens a crafted request can still claim to be another user. Real sessions would fix this everywhere at once.
 - **No rate limiting** on any endpoint, so order spam and login brute-forcing are both open.
 - **No phone verification at sign-up**, so a wrong or fake number means an order nobody can chase.
 - **`warpx.db` has no backup.** It's a single file; losing it loses every order, customer and driver.

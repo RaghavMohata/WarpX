@@ -327,7 +327,7 @@ function renderOrders(orders) {
         <div class="row-between" style="margin-top:8px;flex-wrap:wrap;gap:8px;align-items:center;">
           ${o.lat != null && o.lng != null ? `
             <a class="btn btn-outline btn-sm" href="https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}" target="_blank" rel="noopener">📍 Navigate to customer</a>
-            <span class="text-muted" style="font-size:.78rem;">${esc(o.address) || "No landmark note"} · ${o.lat.toFixed(5)}, ${o.lng.toFixed(5)}</span>
+            <span class="text-muted" style="font-size:.78rem;">${o.address_label ? "<b>" + esc(o.address_label) + "</b> · " : ""}${esc(o.address) || "No landmark note"} · ${o.lat.toFixed(5)}, ${o.lng.toFixed(5)}</span>
           ` : `<span class="stale-tag" style="color:var(--warn);">⚠ No location on file for this order</span>`}
         </div>
         <div class="status-row">

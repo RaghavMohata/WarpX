@@ -64,6 +64,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
   CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 
+  CREATE TABLE IF NOT EXISTS addresses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    label TEXT NOT NULL,
+    address TEXT,
+    lat REAL NOT NULL,
+    lng REAL NOT NULL,
+    zone TEXT,
+    distance_km REAL,
+    eta_min TEXT,
+    is_default INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_addresses_user_id ON addresses(user_id);
+
   CREATE TABLE IF NOT EXISTS drivers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -81,7 +97,7 @@ db.exec(`
 for (const col of ["password_hash TEXT", "password_salt TEXT"]) {
   try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch (e) {}
 }
-for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)", "delivery_otp TEXT"]) {
+for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)", "delivery_otp TEXT", "address_label TEXT"]) {
   try { db.exec(`ALTER TABLE orders ADD COLUMN ${col}`); } catch (e) {}
 }
 

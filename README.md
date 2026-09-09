@@ -150,7 +150,14 @@ Applications land in the **Drivers** tab of `admin.html`, filterable by status (
 
 Once you approve someone in the admin dashboard, they can sign in at `driver.html` with the phone number they applied with, and get their own dashboard — separate from the customer site and from your owner dashboard.
 
-**The progress bar.** Every driver starts at **5%** and climbs **10 points for every 10 deliveries they complete** — 5 → 15 → 25 → 35 → 45, all odd numbers — filling toward a **50% cap**. The bar's track represents 0→50%, so a driver at 45% has very nearly filled it. Tick marks label each tier and light up in lime as they're passed. The ladder lives in one place, `lib/tier.js`, and is computed server-side so the number can't be fudged from the browser.
+**The progress bar.** Every driver starts at **5%** and climbs **10 points for every 10 deliveries they complete** — 5 → 15 → 25 → 35 → 45, all odd numbers — filling toward a **50% cap**. Tick marks label each tier and light up in lime as they're passed.
+
+Two different numbers drive that bar, which matters:
+
+- `percent` is the **tier** — the headline number, which only moves on the odd ladder every 10 deliveries.
+- `barPercent` is the **fill**, and it advances with *every single delivery*, sliding between one tier mark and the next (1 delivery ≈ 1 point). It lands exactly on 15/25/35/45 at deliveries 10/20/30/40.
+
+Using the tier for the fill made the bar look frozen for nine deliveries at a time, which read as broken. The header also shows progress within the current tier ("Tier 2 of 5 · 3/10 toward the next"). Both numbers come from `lib/tier.js` and are computed server-side, so neither can be fudged from the browser.
 
 **Why it needed order-claiming.** A progress bar is only worth having if the number behind it is real, so orders now carry a `driver_id`:
 

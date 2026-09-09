@@ -60,6 +60,7 @@
   <div class="nav-inner">
     <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
     <div class="nav-actions">
+      <a href="index.html" class="btn btn-ghost btn-sm">← WarpX site</a>
       <span class="badge badge-muted" id="navDriverName" style="display:none;"></span>
       <button class="btn btn-ghost btn-sm" id="signOutBtn" onclick="signOut()" style="display:none;">Sign out</button>
     </div>
@@ -187,9 +188,13 @@ function openDashboard() {
 
 function renderProgress(p) {
   document.getElementById("progPct").textContent = p.percent;
-  document.getElementById("progTierLabel").textContent = `Tier ${p.tier} of ${p.tiers}`;
-  // The track runs 0 → the 50% goal, so 45% very nearly fills it.
-  document.getElementById("progFill").style.width = (p.percent / p.goal) * 100 + "%";
+  document.getElementById("progTierLabel").textContent = p.atMax
+    ? `Tier ${p.tier} of ${p.tiers} · top tier`
+    : `Tier ${p.tier} of ${p.tiers} · ${p.inTier}/${p.perTier} toward the next`;
+  // The track runs 0 → the 50% goal. The fill uses barPercent, which creeps
+  // forward with every delivery, rather than percent, which only jumps once
+  // every 10 and left the bar looking frozen in between.
+  document.getElementById("progFill").style.width = (p.barPercent / p.goal) * 100 + "%";
   document.getElementById("progMeta").innerHTML = p.atMax
     ? `<b>Top tier reached 🎉</b><br>${p.completed} deliveries completed`
     : `<b>${p.ordersToNext} more ${p.ordersToNext === 1 ? "delivery" : "deliveries"}</b><br>to reach ${p.nextPercent}%`;

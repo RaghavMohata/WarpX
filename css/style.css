@@ -559,3 +559,31 @@ footer a:hover{ color:#fff; }
   background:var(--grad-warp-soft); border:1px solid rgba(124,58,237,.35); color:var(--violet);
   font-size:.76rem; font-weight:700; padding:3px 9px; border-radius:999px;
 }
+
+/* ---- Install prompt -----------------------------------------------------
+   The 📲 button only exists when the app is actually installable, so it is
+   never a dead control. */
+.install-btn{ font-size:1.05rem; }
+.install-sheet{
+  position:fixed; inset:0; z-index:120; display:flex; align-items:flex-end; justify-content:center;
+  background:rgba(20,18,37,.55); padding:16px;
+  animation:install-fade .18s ease;
+}
+@keyframes install-fade{ from{ opacity:0; } to{ opacity:1; } }
+.install-card{
+  background:var(--surface); border-radius:var(--radius-lg); padding:26px 24px 20px;
+  width:100%; max-width:400px; text-align:center; box-shadow:0 -12px 40px rgba(20,18,37,.28);
+  animation:install-rise .22s cubic-bezier(.2,.8,.3,1);
+}
+@keyframes install-rise{ from{ transform:translateY(24px); } to{ transform:translateY(0); } }
+.install-icon{ border-radius:14px; margin-bottom:10px; }
+.install-steps{
+  text-align:left; margin:16px 0 18px; padding-left:22px;
+  font-size:.9rem; line-height:1.6;
+}
+.install-steps li{ margin-bottom:7px; }
+.ios-share{ font-size:.95rem; }
+@media (min-width:600px){
+  .install-sheet{ align-items:center; }
+  .install-card{ box-shadow:var(--shadow-violet); }
+}

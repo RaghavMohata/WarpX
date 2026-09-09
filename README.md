@@ -339,6 +339,32 @@ Net kept       =  WarpX revenue  −  driver pay
 
 Four periods: today, 7 days, 30 days, all time. The panel also explains its own arithmetic in plain words underneath, naming how much of the gross belongs to the cafe rather than to you.
 
+## Installable app (PWA)
+
+WarpX installs to a phone's home screen and opens full-screen, with no browser chrome and no app store — the biggest perceived-quality jump available for the effort.
+
+- **`manifest.webmanifest`** — standalone display, brand theme colour, and three app shortcuts (long-press the icon for Food / My Orders / Driver Hub). Icons are 192, 512, and a separate **maskable** 512: Android crops non-maskable icons to the launcher's shape, so without that variant the logo loses its corners.
+- **`sw.js`** — the service worker, which is what makes it installable and what makes it work without signal.
+- **`js/pwa.js`** — registration plus the 📲 install button, which only appears when the app is genuinely installable, so it is never a dead control.
+- **iOS** never fires `beforeinstallprompt` and cannot trigger an install sheet, so there the same button opens short **Share → Add to Home Screen** instructions instead. Half the point of an installable app is iPhone users; without this they would get nothing at all. "Don't show this again" is remembered.
+
+### What the service worker will and won't cache
+
+**Nothing under `/api/` is cached, or even intercepted.** This app's whole job is live state — an owner watching for new orders, a driver refreshing the available board, a customer reading a delivery code. A stale API response wouldn't be a slightly old page, it would be a missed order. API traffic goes straight to the network as though the worker didn't exist.
+
+| Request | Strategy | Why |
+| --- | --- | --- |
+| `/api/*` | never touched | live data; staleness here loses orders |
+| Page navigations | network first, cache as fallback | the owner pulls and restarts often — a cache-first shell would keep serving yesterday's HTML, which is exactly the "I pulled but nothing changed" trap |
+| CSS / JS / icons | stale-while-revalidate | instant load, updates land on the next visit |
+| Anything not cached, offline | `offline.html` | a WarpX page explaining what still works, not a browser error |
+
+Only **successful** responses are cached. An earlier version stored whatever came back, which would have written a 404 or a 502 into the shell and then served that error page from cache long after it stopped being true.
+
+The worker calls `skipWaiting()` and `clients.claim()` so a new version takes over immediately rather than waiting for every tab to close — again, because the normal workflow here is pull, restart, refresh.
+
+**Bumping the cache:** change `VERSION` in `sw.js` when you want every client to discard its cached shell. Old caches are deleted on activate.
+
 ## Known limitations
 
 Things that are genuinely not solved yet, written down so they don't get rediscovered as surprises.
@@ -350,6 +376,7 @@ Things that are genuinely not solved yet, written down so they don't get redisco
 - **Ownership checks trust a client-supplied `userId`.** The address endpoints scope every read and write to `user_id`, which stops accidents and casual tampering, but since there are no sessions or tokens a crafted request can still claim to be another user. Real sessions would fix this everywhere at once.
 - **No rate limiting** on any endpoint, so order spam and login brute-forcing are both open.
 - **No phone verification at sign-up**, so a wrong or fake number means an order nobody can chase.
+- **The PWA needs HTTPS off localhost.** Service workers only run on `https://` or `localhost`, so installing from a phone means a real domain or a tunnel — over plain `http://` on a LAN IP the site still works, but it won't install or cache.
 - **`warpx.db` has no backup.** It's a single file; losing it loses every order, customer and driver.
 
 ## Notes

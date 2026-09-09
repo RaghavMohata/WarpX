@@ -49,6 +49,7 @@ python3 -m http.server 8080
 | `checkout.html` | Order summary, delivery address confirmation, and payment method — see below |
 | `orders.html` | Order history for the logged-in user, read live from the database |
 | `careers.html` | **Work With Us** — delivery driver registration, see below |
+| `driver.html` | **Driver Hub** — a driver's own dashboard: progress bar, available orders, active deliveries |
 | `admin.html` | **Owner dashboard** — see below |
 
 Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page navigation before checkout. Once you log in or place an order, that data is also written to `warpx.db` via the API in `server.js` — `localStorage` is now just a client-side cache (and the offline fallback), not the source of truth.
@@ -70,6 +71,11 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `POST /api/drivers` | Submit a delivery-driver application (public, no login required) |
 | `GET /api/drivers` | All driver applications, newest first — powers the admin dashboard's Drivers tab |
 | `PATCH /api/drivers/:id/status` | Approve/reject an application (`pending` / `approved` / `rejected`) |
+| `POST /api/drivers/login` | Driver sign-in by phone — only approved drivers get in (pending/rejected get told why) |
+| `GET /api/drivers/:id/summary` | One driver's progress tier plus the orders they're currently carrying |
+| `GET /api/orders/available` | Orders no driver has claimed yet — the Driver Hub's job board |
+| `PATCH /api/orders/:id/claim` | A driver claims an unassigned order (rejects if someone else got there first) |
+| `PATCH /api/orders/:id/deliver` | A driver marks their own order delivered — this is what advances the progress bar |
 
 `lib/zone.js` is a server-side port of the Haversine/zone logic in `js/location.js` — the browser copy is for instant map feedback before you submit; the server copy is what actually gets stored, so it's the source of truth.
 
@@ -114,7 +120,7 @@ To use it: open `admin.html`, enter the PIN (**`1234`** by default), and just le
 - **This is polling, not push.** The dashboard checks every 5 seconds while the tab is open — close the tab, or the browser/OS kills the tab in the background, and nothing reaches you at all. A real solution is a push channel that works with the tab closed: SMS (Twilio or similar), a mobile push notification (Firebase Cloud Messaging/APNs) to a proper phone app, or at minimum a Service Worker with the Push API so browser notifications survive a closed tab. All of these need a backend service and (for SMS) an ongoing per-message cost — a genuinely bigger step than this project takes on.
 - **Single shared PIN, no accounts.** `ADMIN_PIN` is one hardcoded value in the page's own JavaScript — anyone who reads page source sees it, there's no audit trail of *who* changed an order's status, and there's no way to give one staff member access to only, say, the medicine queue without them also seeing food orders (the per-service filter is a client-side view, not an access boundary). Real multi-retailer support needs actual retailer accounts with server-side authorization, the same password-hashing pattern already used for customers.
 - **Single point of failure.** If nobody is watching the one open dashboard tab — it crashed, the device is asleep, the wifi dropped — orders simply pile up unacknowledged with no fallback channel. A real deployment would want at least a second notification path (SMS/email) that doesn't depend on a browser tab staying open and connected.
-- **No delivery-partner dispatch.** Approving a driver application (see below) doesn't yet connect that driver to specific orders — there's no assignment, no "driver en route" status, no driver-facing app. That's the natural next layer once there's more than one delivery partner to coordinate.
+- **Dispatch is pull, not push.** Drivers now have their own hub (see below) where they claim orders off a shared board and mark them delivered, so orders do get assigned to a named driver. What's still missing is *push*: nobody is notified when a new order appears (the board just polls every 10 seconds), no order is auto-assigned to the nearest driver, and there's no live tracking of where a driver is mid-delivery. Those need the same push infrastructure as the notification gap above.
 
 None of these need guesswork to fix — they need real accounts, a real push/SMS provider, and (eventually) a driver-facing app — each a genuine infrastructure decision rather than something to fake locally. Happy to build any of them next; they're called out here instead of quietly pretended-away.
 
@@ -130,7 +136,24 @@ If an order shows "⚠ No location on file" instead of the navigate button, it m
 
 `careers.html` is a public registration page for people who want to deliver for WarpX — linked from the footer of every page and from a recruitment banner on the homepage. It asks for a name, phone number, vehicle type (bicycle/scooter/motorbike/car), the area they know well (optional), availability (full-time/part-time/weekends), and any notes — then posts to `POST /api/drivers`. No login required to apply; this is a lead-capture form, not a driver account system.
 
-Applications land in the **Drivers** tab of `admin.html`, filterable by status (pending/approved/rejected/all), with a badge showing how many are waiting on a decision. Approving or rejecting just updates a status column for now — see the "No delivery-partner dispatch" caveat above for what a real next step looks like.
+Applications land in the **Drivers** tab of `admin.html`, filterable by status (pending/approved/rejected/all), with a badge showing how many are waiting on a decision.
+
+## The Driver Hub (`driver.html`)
+
+Once you approve someone in the admin dashboard, they can sign in at `driver.html` with the phone number they applied with, and get their own dashboard — separate from the customer site and from your owner dashboard.
+
+**The progress bar.** Every driver starts at **5%** and climbs **10 points for every 10 deliveries they complete** — 5 → 15 → 25 → 35 → 45, all odd numbers — filling toward a **50% cap**. The bar's track represents 0→50%, so a driver at 45% has very nearly filled it. Tick marks label each tier and light up in lime as they're passed. The ladder lives in one place, `lib/tier.js`, and is computed server-side so the number can't be fudged from the browser.
+
+**Why it needed order-claiming.** A progress bar is only worth having if the number behind it is real, so orders now carry a `driver_id`:
+
+- The **Available orders** board lists every order no driver has claimed yet (refreshing itself every 10 seconds).
+- **Accept delivery** claims one. The `driver_id IS NULL` guard is inside the `UPDATE` itself, so if two drivers tap Accept at the same moment, the second one changes 0 rows and gets told "another driver just took that one" — rather than both of them thinking it's theirs.
+- **Mark delivered** is what advances the bar, and only works on orders assigned to *that* driver.
+- Each job card shows what to collect (COD amount vs. already-settled UPI), the landmark note, and a **Navigate** button using the order's saved coordinates.
+
+The owner's dashboard now also shows which driver is carrying each order, or "no driver yet".
+
+**Honest caveat on driver sign-in:** drivers never set a password — they only ever filled in the careers form — so signing in with just a phone number *identifies* rather than *authenticates*. Anyone who knows an approved driver's number could open their hub. That's fine for a small town where you personally approved every driver, but it's the first thing to fix if this grows: give drivers a real password (the customer-side `lib/auth.js` hashing is already there to reuse).
 
 ## Delivery model
 

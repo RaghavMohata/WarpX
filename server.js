@@ -5,6 +5,7 @@ const path = require("path");
 const db = require("./db");
 const { classifyZone } = require("./lib/zone");
 const { hashPassword, verifyPassword } = require("./lib/auth");
+const { tierFor } = require("./lib/tier");
 
 const app = express();
 app.use(express.json());
@@ -123,9 +124,27 @@ app.post("/api/orders", (req, res) => {
 app.get("/api/orders", (req, res) => {
   const orders = db
     .prepare(
-      `SELECT orders.*, users.name AS customer_name, users.phone AS customer_phone
-       FROM orders LEFT JOIN users ON users.id = orders.user_id
+      `SELECT orders.*, users.name AS customer_name, users.phone AS customer_phone,
+              drivers.name AS driver_name
+       FROM orders
+       LEFT JOIN users ON users.id = orders.user_id
+       LEFT JOIN drivers ON drivers.id = orders.driver_id
        ORDER BY orders.id DESC`
+    )
+    .all();
+  const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
+  res.json(orders.map((o) => ({ ...o, items: itemsStmt.all(o.id) })));
+});
+
+// Orders nobody has picked up yet — the driver app's job board.
+// Registered before /api/orders/:userId, otherwise "available" would be
+// swallowed by that route and parsed as a (NaN) user id.
+app.get("/api/orders/available", (req, res) => {
+  const orders = db
+    .prepare(
+      `SELECT * FROM orders
+       WHERE driver_id IS NULL AND status != 'delivered'
+       ORDER BY id ASC`
     )
     .all();
   const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
@@ -178,6 +197,84 @@ app.patch("/api/drivers/:id/status", (req, res) => {
   }
   db.prepare("UPDATE drivers SET status = ? WHERE id = ?").run(status, id);
   res.json({ id, status });
+});
+
+// Driver sign-in for driver.html. Phone-only on purpose: drivers never set a
+// password (they only ever filled in the careers form), so this identifies
+// rather than authenticates — see the README's caveat about that.
+app.post("/api/drivers/login", (req, res) => {
+  const { phone } = req.body || {};
+  if (!phone) return res.status(400).json({ error: "Enter the mobile number you applied with." });
+
+  const driver = db.prepare("SELECT * FROM drivers WHERE phone = ? ORDER BY id DESC").get(phone);
+  if (!driver) {
+    return res.status(404).json({ error: "No application found for that number — apply on the Work With Us page first." });
+  }
+  if (driver.status === "pending") {
+    return res.status(403).json({ error: "Your application is still being reviewed. We'll call you once it's approved." });
+  }
+  if (driver.status === "rejected") {
+    return res.status(403).json({ error: "This application wasn't approved. Get in touch if you think that's a mistake." });
+  }
+  res.json({ id: driver.id, name: driver.name, phone: driver.phone, vehicleType: driver.vehicle_type });
+});
+
+// A driver's own dashboard data: their progress tier plus the orders they're
+// currently carrying.
+app.get("/api/drivers/:id/summary", (req, res) => {
+  const id = Number(req.params.id);
+  const driver = db.prepare("SELECT * FROM drivers WHERE id = ?").get(id);
+  if (!driver) return res.status(404).json({ error: "Driver not found." });
+
+  const completed = db
+    .prepare("SELECT COUNT(*) AS n FROM orders WHERE driver_id = ? AND status = 'delivered'")
+    .get(id).n;
+
+  const active = db
+    .prepare("SELECT * FROM orders WHERE driver_id = ? AND status != 'delivered' ORDER BY id ASC")
+    .all(id);
+  const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
+
+  res.json({
+    driver: { id: driver.id, name: driver.name, phone: driver.phone, vehicleType: driver.vehicle_type },
+    progress: tierFor(completed),
+    active: active.map((o) => ({ ...o, items: itemsStmt.all(o.id) })),
+  });
+});
+
+// Claim an unassigned order. The `driver_id IS NULL` guard in the UPDATE is
+// what stops two drivers grabbing the same order — whoever's write lands
+// second changes 0 rows and gets told it's already taken.
+app.patch("/api/orders/:id/claim", (req, res) => {
+  const id = Number(req.params.id);
+  const { driverId } = req.body || {};
+  const driver = db.prepare("SELECT * FROM drivers WHERE id = ?").get(driverId);
+  if (!driver || driver.status !== "approved") {
+    return res.status(403).json({ error: "Only approved drivers can accept orders." });
+  }
+  const info = db
+    .prepare("UPDATE orders SET driver_id = ? WHERE id = ? AND driver_id IS NULL AND status != 'delivered'")
+    .run(driverId, id);
+  if (info.changes === 0) {
+    return res.status(409).json({ error: "Another driver just took that one." });
+  }
+  res.json(db.prepare("SELECT * FROM orders WHERE id = ?").get(id));
+});
+
+// Mark one of your own orders delivered — this is what moves the progress bar.
+app.patch("/api/orders/:id/deliver", (req, res) => {
+  const id = Number(req.params.id);
+  const { driverId } = req.body || {};
+  const info = db
+    .prepare("UPDATE orders SET status = 'delivered' WHERE id = ? AND driver_id = ?")
+    .run(id, driverId);
+  if (info.changes === 0) {
+    return res.status(403).json({ error: "That order isn't assigned to you." });
+  }
+  const completed = db
+    .prepare("SELECT COUNT(*) AS n FROM orders WHERE driver_id = ? AND status = 'delivered'")
+    .get(driverId).n;
+  res.json({ id, status: "delivered", progress: tierFor(completed) });
 });
 
 const PORT = process.env.PORT || 3000;

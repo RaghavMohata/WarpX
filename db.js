@@ -43,6 +43,7 @@ db.exec(`
     lat REAL,
     lng REAL,
     address TEXT,
+    driver_id INTEGER REFERENCES drivers(id),
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -79,8 +80,12 @@ db.exec(`
 for (const col of ["password_hash TEXT", "password_salt TEXT"]) {
   try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch (e) {}
 }
-for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT"]) {
+for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)"]) {
   try { db.exec(`ALTER TABLE orders ADD COLUMN ${col}`); } catch (e) {}
 }
+
+// Indexed after the migrations above, so this still works on a warpx.db that
+// predates the column it indexes.
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_orders_driver_id ON orders(driver_id)"); } catch (e) {}
 
 module.exports = db;

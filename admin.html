@@ -320,6 +320,7 @@ function renderOrders(orders) {
         </div>
         <div class="text-muted" style="font-size:.8rem;margin-top:4px;">
           ${o.payment_method === "upi" ? "📱 UPI" + (o.upi_id ? " (" + esc(o.upi_id) + ")" : "") : "💵 Cash on Delivery"}
+          · ${o.driver_name ? "🚴 " + esc(o.driver_name) : "🚴 no driver yet"}
         </div>
         <div class="row-between" style="margin-top:8px;flex-wrap:wrap;gap:8px;align-items:center;">
           ${o.lat != null && o.lng != null ? `

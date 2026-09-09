@@ -114,6 +114,7 @@
 
       <div class="card" style="padding:26px;margin-bottom:20px;">
         <h3 style="margin-bottom:14px;">When do you want it?</h3>
+        <div id="closedNote"></div>
         <div class="segmented" id="timingSeg" style="margin-bottom:16px;">
           <button type="button" class="active" data-val="now">⚡ As soon as possible</button>
           <button type="button" data-val="later">🗓️ Schedule it</button>
@@ -211,9 +212,64 @@ let paymentMethod = "cod";
    impossible day can't even be picked. */
 let orderTiming = "now";
 
+/* Outside opening hours an ASAP order can't be honoured — the server refuses
+   it. Rather than let someone fill in a whole checkout and then be told no,
+   the ASAP option is disabled up front and scheduling is pre-selected with the
+   next slot we can actually deliver in.
+
+   The shop's clock decides this, not the browser's, so the answer comes from
+   GET /api/hours. Fails open: an unreachable backend leaves checkout exactly
+   as it was rather than locking someone out of ordering. */
+let shopHours = null;
+
+async function applyOpeningHours() {
+  try {
+    const res = await fetch("/api/hours");
+    if (!res.ok) return;
+    shopHours = await res.json();
+  } catch (e) {
+    return;
+  }
+
+  const note = document.getElementById("closedNote");
+  const nowBtn = document.querySelector('#timingSeg button[data-val="now"]');
+  if (shopHours.open) {
+    note.innerHTML = "";
+    nowBtn.disabled = false;
+    nowBtn.style.opacity = "";
+    return;
+  }
+
+  const next = shopHours.opensAt;
+  note.innerHTML = `<div class="closed-note">🌙 <b>We're closed right now.</b> Orders open again ${escapeAttr(next.label)} — pick a slot below and we'll have it ready for you.</div>`;
+  nowBtn.disabled = true;
+  nowBtn.style.opacity = ".45";
+
+  // Switch to scheduling and pre-fill the first slot we can actually honour.
+  if (orderTiming !== "later") {
+    document.querySelectorAll("#timingSeg button").forEach((b) => b.classList.remove("active"));
+    document.querySelector('#timingSeg button[data-val="later"]').classList.add("active");
+    orderTiming = "later";
+    document.getElementById("schedulePanel").style.display = "block";
+    document.getElementById("nowHint").style.display = "none";
+  }
+  const dateEl = document.getElementById("scheduleDate");
+  const timeEl = document.getElementById("scheduleTime");
+  const bounds = scheduleDateBounds();
+  dateEl.min = bounds.min;
+  dateEl.max = bounds.max;
+  if (!dateEl.value) dateEl.value = next.date;
+  if (!timeEl.value) timeEl.value = next.time;
+  renderScheduleHint();
+}
+
 document.getElementById("timingSeg").addEventListener("click", (e) => {
   const btn = e.target.closest("button");
   if (!btn) return;
+  // While closed the ASAP option is disabled — ignore clicks on it rather than
+  // letting someone select a timing the server is going to refuse.
+  if (btn.dataset.val === "now" && shopHours && !shopHours.open) return;
+
   document.querySelectorAll("#timingSeg button").forEach((b) => b.classList.remove("active"));
   btn.classList.add("active");
   orderTiming = btn.dataset.val;
@@ -239,10 +295,10 @@ function primeScheduleInputs() {
     soon.setMinutes(Math.ceil(soon.getMinutes() / 15) * 15, 0, 0);
     const p2 = (n) => String(n).padStart(2, "0");
     let day = soon;
-    let hh = soon.getHours();
+    const hh = soon.getHours();
     if (hh >= SCHEDULE_CLOSE_HOUR) {
-      // Past closing: default to opening time tomorrow instead of a slot
-      // that would be rejected the moment they hit Place order.
+      // Past closing: default to opening time tomorrow instead of a slot that
+      // would be rejected the moment they hit Place order.
       day = new Date(soon.getFullYear(), soon.getMonth(), soon.getDate() + 1, SCHEDULE_OPEN_HOUR, 0);
     } else if (hh < SCHEDULE_OPEN_HOUR) {
       day = new Date(soon.getFullYear(), soon.getMonth(), soon.getDate(), SCHEDULE_OPEN_HOUR, 0);
@@ -500,6 +556,13 @@ async function submitOrder(btn) {
       }),
     });
     const data = await res.json();
+    if (res.status === 409 && data.closed) {
+      applyOpeningHours();
+      showToast(data.error);
+      btn.disabled = false;
+      btn.textContent = "Place order at warp speed 🚀";
+      return;
+    }
     if (!res.ok) {
       showToast(data.error || "Could not place order.");
       if (res.status === 401) setTimeout(() => { window.location.href = "login.html?redirect=checkout.html"; }, 1200);
@@ -530,6 +593,7 @@ async function submitOrder(btn) {
   document.getElementById("checkoutBody").style.display = loggedIn && hasItems ? "block" : "none";
   if (loggedIn && hasItems) {
     renderCheckout();
+    applyOpeningHours();
     // Draws the saved-address picker once the list comes back; renderCheckout
     // has already painted the fallback, so there's no empty flash.
     loadAddresses();

@@ -587,3 +587,60 @@ footer a:hover{ color:#fff; }
   .install-sheet{ align-items:center; }
   .install-card{ box-shadow:var(--shadow-violet); }
 }
+
+/* ---- Closed / open notice ----------------------------------------------- */
+.closed-bar{
+  background:linear-gradient(135deg,#EA580C,#B45309); color:#fff;
+  padding:9px 16px; text-align:center; font-size:.87rem; line-height:1.4;
+}
+.closed-bar b{ font-weight:700; }
+.closed-note{
+  background:rgba(234,88,12,.10); border:1px solid rgba(234,88,12,.40); color:#9A3412;
+  border-radius:var(--radius-sm); padding:12px 14px; margin-bottom:16px; font-size:.88rem; line-height:1.5;
+}
+
+/* ---- Customer order tracker --------------------------------------------- */
+.track{ display:flex; align-items:flex-start; margin:14px 0 4px; }
+.track-step{ flex:1; text-align:center; position:relative; min-width:0; }
+.track-dot{
+  width:22px; height:22px; border-radius:50%; margin:0 auto 6px;
+  background:var(--surface-2); border:2px solid var(--line);
+  display:flex; align-items:center; justify-content:center;
+  font-size:.7rem; color:transparent; position:relative; z-index:1;
+  transition:background .25s, border-color .25s, color .25s;
+}
+/* The connector is drawn from each step back to the previous one, so it can be
+   coloured per-segment rather than as one bar underneath. */
+.track-step::before{
+  content:""; position:absolute; top:10px; right:50%; width:100%; height:2px;
+  background:var(--line); z-index:0; transition:background .25s;
+}
+.track-step:first-child::before{ display:none; }
+.track-step.done .track-dot{ background:var(--lime); border-color:var(--lime); color:#1a2e05; }
+.track-step.done::before{ background:var(--lime); }
+.track-step.now .track-dot{
+  background:var(--violet); border-color:var(--violet); color:#fff;
+  box-shadow:0 0 0 4px rgba(109,40,217,.18);
+}
+.track-label{ font-size:.72rem; color:var(--muted); line-height:1.25; word-break:break-word; }
+.track-step.now .track-label{ color:var(--violet); font-weight:700; }
+.track-step.done .track-label{ color:var(--text); }
+.track-live{
+  display:inline-flex; align-items:center; gap:5px; font-size:.74rem; color:var(--muted); margin-top:2px;
+}
+.track-live i{
+  width:6px; height:6px; border-radius:50%; background:var(--lime); display:inline-block;
+  animation:track-pulse 1.6s ease-in-out infinite;
+}
+@keyframes track-pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.25; } }
+
+/* ---- Payout ledger ------------------------------------------------------- */
+.payout-row{
+  display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
+  padding:13px 0; border-bottom:1px solid var(--line);
+}
+.payout-row:last-child{ border-bottom:none; }
+.payout-who b{ display:block; }
+.payout-who small{ color:var(--muted); font-size:.78rem; }
+.payout-amt{ font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.payout-paid{ color:var(--muted); }

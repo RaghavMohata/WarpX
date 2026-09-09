@@ -70,3 +70,10 @@ const PICASSO_MENU = [
     ],
   },
 ];
+
+// Present when required by Node, harmless when this runs as a browser script.
+// The server prices every cafe order from this same list, so the menu the
+// customer sees and the menu they're charged from cannot drift apart.
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { PICASSO_MENU };
+}

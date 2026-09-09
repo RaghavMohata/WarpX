@@ -169,6 +169,15 @@
     </div>
   </div>
 
+  <div class="card pay-card">
+    <div class="row-between" style="margin-bottom:2px;">
+      <h3 style="margin:0;">Your payouts</h3>
+      <span class="text-muted" style="font-size:.82rem;">Pending <b id="payoutPending">₹0</b> · Received <b id="payoutReceived">₹0</b></span>
+    </div>
+    <p class="text-muted" style="font-size:.83rem;margin:2px 0 10px;">One row per day you worked. "Pending" is what you're still owed.</p>
+    <div id="payoutList"></div>
+  </div>
+
   <div class="stat-row">
     <div class="card stat-box"><b id="statCompleted">0</b><span>Delivered today</span></div>
     <div class="card stat-box"><b id="statActive">0</b><span>On the way now</span></div>
@@ -390,6 +399,7 @@ async function refresh(manual) {
 
     renderProgress(summary.progress);
     renderPay(summary);
+    loadPayouts();
     startResetCountdown(summary.resetsInSeconds);
     document.getElementById("statCompleted").textContent = summary.progress.completed;
     document.getElementById("statActive").textContent = summary.active.length;
@@ -408,6 +418,9 @@ async function refresh(manual) {
     document.getElementById("activeList").innerHTML = summary.active.length
       ? summary.active
           .map((o) => orderCard(o, `
+            ${o.status !== "out for delivery"
+              ? `<button class="btn btn-outline btn-sm" onclick="markPickedUp(${o.id}, this)">📦 Picked up</button>`
+              : `<span class="badge badge-lime" style="align-self:center;">On the way</span>`}
             <div class="otp-entry">
               <label for="otp-${o.id}">Ask the customer for their 4-digit delivery code</label>
               <div class="otp-entry-row">
@@ -460,6 +473,63 @@ async function claimOrder(orderId, btn) {
     showToast("Could not reach the server.");
   } finally {
     refresh(true);
+  }
+}
+
+/* Collecting an order is a separate event from accepting it. Inferring "on the
+   way" from the claim would tell the customer their food had left the cafe
+   while the driver was still riding towards it. */
+async function markPickedUp(orderId, btn) {
+  const driver = getDriver();
+  if (!driver) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = "Updating...";
+  try {
+    const res = await fetch(`/api/orders/${orderId}/pickup`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ driverId: driver.id }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Could not update that order.");
+    showToast("Marked as picked up — the customer can see it's on the way.");
+    refresh(true);
+  } catch (e) {
+    showToast(e.message);
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+/* What the owner still owes this driver, and what has already been handed
+   over. Pay was computed long before there was any record of settling it. */
+async function loadPayouts() {
+  const driver = getDriver();
+  if (!driver) return;
+  try {
+    const res = await fetch(`/api/drivers/${driver.id}/payouts`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const box = document.getElementById("payoutList");
+    if (!box) return;
+    document.getElementById("payoutPending").textContent = "₹" + data.pending;
+    document.getElementById("payoutReceived").textContent = "₹" + data.received;
+    box.innerHTML = data.rows.length
+      ? data.rows.slice(0, 10).map((r) => `
+          <div class="payout-row">
+            <div class="payout-who">
+              <b>${esc(r.day)}</b>
+              <small>${r.deliveries} ${r.deliveries === 1 ? "delivery" : "deliveries"} · tier ${r.tier} (${r.percent}%)</small>
+            </div>
+            <div style="text-align:right;">
+              <div class="payout-amt">₹${r.amount}</div>
+              <small class="${r.paid ? "payout-paid" : ""}" style="font-size:.76rem;">${r.paid ? "✓ paid" : "pending"}</small>
+            </div>
+          </div>`).join("")
+      : `<p class="text-muted mb-0" style="font-size:.88rem;">No completed deliveries yet.</p>`;
+  } catch (e) {
+    // A payout panel that can't load must never take the rest of the hub down.
   }
 }
 

@@ -66,6 +66,24 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
   CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 
+  /* A record of what has actually been handed to a driver. What they are OWED
+     is derived from delivered orders and never stored; this table only records
+     settlement, so the two can't drift. One row per driver per day, enforced by
+     the unique index below, because that is the unit pay is calculated in. */
+  CREATE TABLE IF NOT EXISTS payouts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    driver_id INTEGER NOT NULL REFERENCES drivers(id),
+    day TEXT NOT NULL,
+    deliveries INTEGER NOT NULL,
+    fees REAL NOT NULL,
+    percent REAL NOT NULL,
+    amount REAL NOT NULL,
+    note TEXT,
+    paid_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_payouts_driver_day ON payouts(driver_id, day);
+
   CREATE TABLE IF NOT EXISTS addresses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),

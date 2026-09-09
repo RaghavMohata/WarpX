@@ -54,6 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("click", openDrawer)
   );
 
+  initClosedNotice();
   initScrollReveal();
   initHeroBlobs();
   initCountUp();
@@ -227,4 +228,24 @@ function initTiltCards() {
       card.style.transform = "";
     });
   });
+}
+
+/* A shop that takes orders it can't fill is worse than one that says it's
+   shut. The server decides this, not the browser — see GET /api/hours. Fails
+   open: if the backend can't be reached we show nothing rather than a banner
+   we can't stand behind. main.js loads everywhere, so it lives here. */
+async function initClosedNotice() {
+  try {
+    const res = await fetch("/api/hours");
+    if (!res.ok) return;
+    const hours = await res.json();
+    if (hours.open || document.getElementById("closedBar")) return;
+    const bar = document.createElement("div");
+    bar.id = "closedBar";
+    bar.className = "closed-bar";
+    bar.innerHTML = `🌙 <b>We're closed right now.</b> Orders open again ${hours.opensAt.label} — you can still browse and schedule one.`;
+    document.body.insertBefore(bar, document.body.firstChild);
+  } catch (e) {
+    // No backend (or offline): stay quiet rather than guess.
+  }
 }

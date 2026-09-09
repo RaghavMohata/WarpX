@@ -365,11 +365,49 @@ The worker calls `skipWaiting()` and `clients.claim()` so a new version takes ov
 
 **Bumping the cache:** change `VERSION` in `sw.js` when you want every client to discard its cached shell. Old caches are deleted on activate.
 
+## Order tracking, opening hours, and payouts
+
+Four features shipped earlier had visible holes — promises the code didn't yet keep. These close them.
+
+### Prices are the server's business
+
+`POST /api/orders` used to total up whatever `price` the request carried, so a hand-crafted request could buy a ₹184 cold brew for ₹1. It now **never reads `price` from the request at all**. Every cafe line is looked up by name in `js/menu-data.js` — the same file the customer's page renders from, now dual-exported so the server can `require()` it.
+
+Only food is ever priced this way. Grocery, medicine, laundry and custom requests already sent `price: null` and are quoted at pickup, so nothing about them changes. An unrecognised cafe line (a renamed item, a "Custom cafe request") resolves to `null` rather than being trusted.
+
+### Opening hours, 08:00–22:00
+
+Scheduling was bounded from the start; **ASAP orders weren't**, so an order could land at 3am with a broken ETA before anyone saw it. `isOpenNow()` and `nextOpeningSlot()` in `lib/schedule.js` now bound both, from the same two constants.
+
+**The server decides this, not the browser.** `GET /api/hours` is the authority — a customer in another timezone, or with a wrong device clock, would otherwise see a closed banner over an open shop or be told it's open when the server will refuse. A closed shop shows a site-wide banner, and checkout disables the ASAP option and pre-selects the next slot it can actually deliver in, rather than refusing and losing the order.
+
+### Live order tracking
+
+The status flow (`placed → preparing → out for delivery → delivered`) existed and worked, but `orders.html` fetched once and rendered a single static word — nobody ever saw the owner's updates. My Orders now shows a four-step tracker that polls every 15s, and **stops polling once every order is delivered** rather than running forever in a background tab.
+
+Two supporting changes:
+
+- **Drivers get a "Picked up" button.** Claiming an order is not the same as having collected it, so inferring *out for delivery* from the claim would tell a customer their food had left the cafe while the rider was still on the way to it. The owner keeps *preparing*, the driver owns *picked up*, and the OTP handover still sets *delivered*.
+- `PATCH /api/orders/:id/status` **validates against the allowed list.** It previously accepted any string, so a typo could write nonsense into the column.
+
+### Scheduled orders now shout
+
+A 7pm delivery used to sit on the dashboard wearing a 🗓️ tag with nothing telling the owner to start it. The dashboard now pins a **Due soon** block above the order list and fires the existing chime + desktop notification once per order, at the same moment it becomes claimable by a driver (`DISPATCH_LEAD_MINUTES`, 45 min). Alerted ids are remembered, so a reload doesn't re-shout, and the first paint after unlocking stays silent rather than announcing history.
+
+### Driver payout ledger
+
+The earnings panel could say you owed ₹4,158 with no record of what you'd actually handed over. A new **💸 Payouts** tab groups every driver-day: deliveries, tier, base + bonus, and a Mark paid button, with running totals for outstanding vs settled.
+
+- **Owed is never stored.** It's recomputed from delivered orders with the same `tierFor` + `payFor` grouping the Driver Hub uses, so the ledger and a driver's own screen cannot disagree. The `payouts` table records only *settlement*.
+- `UNIQUE(driver_id, day)` means a day can't be paid twice, even if two clicks race.
+- The amount written comes from the freshly computed row, never from the request — a payout can't be recorded for a figure that was never owed.
+- Drivers see their own paid/pending list in the hub.
+
 ## Known limitations
 
 Things that are genuinely not solved yet, written down so they don't get rediscovered as surprises.
 
-- **The server trusts item prices sent by the browser.** `POST /api/orders` computes the subtotal from the `price` on each item in the request body (`server.js`), so a crafted request can order a ₹250 item for ₹1. The *delivery fee* is now safe — it's always recomputed server-side from that subtotal via `lib/fee.js` — but the subtotal it's computed from is not. The real fix is a server-side catalog: the browser sends item IDs and quantities, the server looks up prices itself, and only genuinely custom ("anything else") items stay unpriced until you price them.
+- **Cafe items are matched by name.** Server-side pricing keys off the item name in `js/menu-data.js`, so renaming an item there without updating anything else makes existing carts holding the old name resolve to unpriced rather than mispriced. Safe, but worth knowing before a menu rewrite.
 - **`GET /api/admin/earnings` has no auth**, like every other endpoint here — anyone who can reach the server can read your revenue and driver costs. Same root cause as the admin PIN below.
 - **The admin PIN is in the page.** `ADMIN_PIN` is a constant in `admin.html`, visible in view-source, and the API behind it has no auth at all — `GET /api/orders` returns every customer's name, phone, address and coordinates to anyone who requests it. That's fine on localhost; it is a data leak the moment the site is reachable from the internet.
 - **Driver sign-in identifies rather than authenticates** — see the caveat under The Driver Hub.

@@ -8,7 +8,9 @@ const { classifyZone } = require("./lib/zone");
 const { hashPassword, verifyPassword } = require("./lib/auth");
 const { tierFor, payFor, payIfOneMore, BASE_PAY_PER_DELIVERY } = require("./lib/tier");
 const { feeFor } = require("./lib/fee");
-const { validateSchedule, isDueForDispatch } = require("./lib/schedule");
+const { validateSchedule, isDueForDispatch, isOpenNow, nextOpeningSlot,
+        SCHEDULE_OPEN_HOUR, SCHEDULE_CLOSE_HOUR } = require("./lib/schedule");
+const { PICASSO_MENU } = require("./js/menu-data");
 
 const app = express();
 app.use(express.json());
@@ -30,6 +32,42 @@ function withoutOtp(order) {
   const { delivery_otp, ...rest } = order;
   return rest;
 }
+
+/* ---- Pricing is the server's business, not the browser's ------------------
+   POST /api/orders used to total up whatever `price` the request carried,
+   which meant a hand-crafted request could buy a ₹184 cold brew for ₹1. The
+   server now ignores that field entirely and looks every cafe item up in the
+   same menu the customer was shown.
+
+   Only food is ever priced here. Grocery, medicine, laundry and custom
+   requests are all quoted at pickup and stay null — which is exactly what
+   they already did, so nothing about them changes. */
+const MENU_PRICES = new Map();
+for (const category of PICASSO_MENU) {
+  for (const item of category.items) MENU_PRICES.set(item.name, item.price);
+}
+
+function resolvePrice(item) {
+  if (item.service !== "food") return null;
+  const listed = MENU_PRICES.get(item.name);
+  // An unrecognised cafe line (a "Custom cafe request", or a renamed item) is
+  // priced by hand at pickup rather than trusted from the request.
+  return listed == null ? null : listed;
+}
+
+/* Opening hours as the SHOP sees them. The browser must not decide this from
+   its own clock: a customer in another timezone (or with a wrong device
+   clock) would otherwise be told the shop is open when the server will
+   refuse the order, or shown a closed banner over a perfectly open shop. */
+app.get("/api/hours", (req, res) => {
+  const open = isOpenNow();
+  res.json({
+    open,
+    openHour: SCHEDULE_OPEN_HOUR,
+    closeHour: SCHEDULE_CLOSE_HOUR,
+    opensAt: open ? null : nextOpeningSlot(),
+  });
+});
 
 // Create a new account — phone + password, hashed with a per-user salt.
 app.post("/api/auth/signup", (req, res) => {
@@ -198,9 +236,22 @@ app.post("/api/orders", (req, res) => {
     const check = validateSchedule(scheduleDate, scheduleTime);
     if (!check.ok) return res.status(400).json({ error: check.error });
     scheduledFor = check.value;
+  } else if (!isOpenNow()) {
+    /* An ASAP order outside opening hours can't be honoured — nobody is there
+       to pick it up. Refused with the next slot named, so the customer can
+       schedule instead of simply being turned away. */
+    const next = nextOpeningSlot();
+    return res.status(409).json({
+      error: `We're closed right now. Schedule your order for ${next.label} instead, or come back when we open.`,
+      closed: true,
+      opensAt: next,
+    });
   }
 
-  const subtotal = items.reduce((sum, it) => sum + (Number(it.price) || 0) * (it.qty || 1), 0);
+  // Resolved once, then reused for both the subtotal and the stored line items,
+  // so what's charged and what's recorded can never disagree.
+  const priced = items.map((it) => ({ ...it, price: resolvePrice(it) }));
+  const subtotal = priced.reduce((sum, it) => sum + (it.price || 0) * (it.qty || 1), 0);
   // Priced server-side from the real subtotal — the browser's figure is only
   // ever a preview, never what gets charged.
   const deliveryFee = feeFor(subtotal);
@@ -246,9 +297,9 @@ app.post("/api/orders", (req, res) => {
     const insertItem = db.prepare(
       "INSERT INTO order_items (order_id, service, name, price, qty, note) VALUES (?, ?, ?, ?, ?, ?)"
     );
-    for (const it of items) {
+    for (const it of priced) {
       if (!it.service || !it.name) throw new Error("each item needs a service and a name");
-      insertItem.run(orderId, it.service, it.name, it.price ?? null, it.qty || 1, it.note || null);
+      insertItem.run(orderId, it.service, it.name, it.price, it.qty || 1, it.note || null);
     }
     db.exec("COMMIT");
   } catch (err) {
@@ -305,12 +356,41 @@ app.get("/api/orders/:userId", (req, res) => {
 });
 
 // Update an order's status (owner dashboard use).
+// The four steps a customer sees on their tracker. Anything outside this list
+// would render as an unknown step, so it is rejected rather than stored.
+const ORDER_STATUSES = ["placed", "preparing", "out for delivery", "delivered"];
+
 app.patch("/api/orders/:id/status", (req, res) => {
   const id = Number(req.params.id);
   const { status } = req.body || {};
   if (!status) return res.status(400).json({ error: "status is required" });
-  db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, id);
+  if (!ORDER_STATUSES.includes(status)) {
+    return res.status(400).json({ error: `Unknown status. Expected one of: ${ORDER_STATUSES.join(", ")}.` });
+  }
+  const existing = db.prepare("SELECT id FROM orders WHERE id = ?").get(id);
+  if (!existing) return res.status(404).json({ error: "No such order." });
+
+  // Reaching 'delivered' through here would skip the handover code entirely,
+  // which is the one thing that makes 'delivered' mean anything.
+  db.prepare(
+    status === "delivered"
+      ? "UPDATE orders SET status = ?, delivered_at = COALESCE(delivered_at, datetime('now')) WHERE id = ?"
+      : "UPDATE orders SET status = ? WHERE id = ?"
+  ).run(status, id);
   res.json({ id, status });
+});
+
+/* A driver marking an order collected. Claiming an order is not the same as
+   having it in your hands, so this is a separate, driver-driven step rather
+   than something inferred from the claim. */
+app.patch("/api/orders/:id/pickup", (req, res) => {
+  const id = Number(req.params.id);
+  const { driverId } = req.body || {};
+  const order = db.prepare("SELECT * FROM orders WHERE id = ? AND driver_id = ?").get(id, Number(driverId));
+  if (!order) return res.status(403).json({ error: "That order isn't assigned to you." });
+  if (order.status === "delivered") return res.status(409).json({ error: "That order is already delivered." });
+  db.prepare("UPDATE orders SET status = 'out for delivery' WHERE id = ? AND driver_id = ?").run(id, Number(driverId));
+  res.json({ id, status: "out for delivery" });
 });
 
 // Submit a delivery-driver application (public — no login required).
@@ -394,6 +474,91 @@ function earningsBetween(sinceExpr) {
     deliveries: dayRows.reduce((n, r) => n + r.n, 0),
   };
 }
+
+/* ---- Driver payouts ------------------------------------------------------
+   The earnings panel says what is owed in total; this says who is owed it and
+   whether they have been paid. Owed is always recomputed from delivered
+   orders using the same tierFor + payFor grouping the Driver Hub uses, so the
+   ledger and the driver's own screen can never disagree. */
+
+function payoutRows() {
+  const days = db
+    .prepare(
+      `SELECT o.driver_id AS driverId, d.name AS driverName, d.phone AS driverPhone,
+              date(COALESCE(o.delivered_at, o.created_at), 'localtime') AS day,
+              COUNT(*) AS deliveries, COALESCE(SUM(o.delivery_fee), 0) AS fees
+       FROM orders o JOIN drivers d ON d.id = o.driver_id
+       WHERE o.status = 'delivered' AND o.driver_id IS NOT NULL
+       GROUP BY o.driver_id, day
+       ORDER BY day DESC, d.name ASC`
+    )
+    .all();
+
+  const paidStmt = db.prepare("SELECT * FROM payouts WHERE driver_id = ? AND day = ?");
+  return days.map((r) => {
+    const progress = tierFor(r.deliveries);
+    const pay = payFor({ deliveries: r.deliveries, feeTotal: r.fees, percent: progress.percent });
+    const paid = paidStmt.get(r.driverId, r.day);
+    return {
+      driverId: r.driverId, driverName: r.driverName, driverPhone: r.driverPhone,
+      day: r.day, deliveries: r.deliveries, fees: Math.round(r.fees * 100) / 100,
+      tier: progress.tier, percent: progress.percent,
+      base: pay.base, bonus: pay.bonus, amount: pay.total,
+      paid: !!paid,
+      paidAt: paid ? paid.paid_at : null,
+      paidAmount: paid ? paid.amount : null,
+      payoutId: paid ? paid.id : null,
+    };
+  });
+}
+
+app.get("/api/admin/payouts", (req, res) => {
+  const rows = payoutRows();
+  const round = (v) => Math.round(v * 100) / 100;
+  res.json({
+    rows,
+    outstanding: round(rows.filter((r) => !r.paid).reduce((s, r) => s + r.amount, 0)),
+    settled: round(rows.filter((r) => r.paid).reduce((s, r) => s + r.paidAmount, 0)),
+    total: round(rows.reduce((s, r) => s + r.amount, 0)),
+  });
+});
+
+app.post("/api/admin/payouts", (req, res) => {
+  const { driverId, day, note } = req.body || {};
+  const row = payoutRows().find((r) => r.driverId === Number(driverId) && r.day === day);
+  if (!row) return res.status(404).json({ error: "No deliveries for that driver on that day." });
+  if (row.paid) return res.status(409).json({ error: "That day is already marked paid." });
+
+  // The amount is taken from the freshly computed row, never from the request,
+  // so a payout can't be recorded for a figure that was never owed.
+  try {
+    const info = db
+      .prepare("INSERT INTO payouts (driver_id, day, deliveries, fees, percent, amount, note) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(row.driverId, row.day, row.deliveries, row.fees, row.percent, row.amount, note || null);
+    res.json({ id: info.lastInsertRowid, ...row, paid: true, paidAmount: row.amount });
+  } catch (err) {
+    // The unique index is the real guard against a double payment racing in.
+    return res.status(409).json({ error: "That day is already marked paid." });
+  }
+});
+
+app.delete("/api/admin/payouts/:id", (req, res) => {
+  const info = db.prepare("DELETE FROM payouts WHERE id = ?").run(Number(req.params.id));
+  if (info.changes === 0) return res.status(404).json({ error: "No such payout record." });
+  res.json({ ok: true });
+});
+
+// A driver's own settlement history — the side that actually cares.
+app.get("/api/drivers/:id/payouts", (req, res) => {
+  const id = Number(req.params.id);
+  const rows = payoutRows().filter((r) => r.driverId === id);
+  const round = (v) => Math.round(v * 100) / 100;
+  res.json({
+    rows,
+    pending: round(rows.filter((r) => !r.paid).reduce((s, r) => s + r.amount, 0)),
+    received: round(rows.filter((r) => r.paid).reduce((s, r) => s + r.paidAmount, 0)),
+  });
+});
 
 app.get("/api/admin/earnings", (req, res) => {
   res.json({

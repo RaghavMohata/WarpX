@@ -118,6 +118,44 @@ function logout() {
   window.location.href = "index.html";
 }
 
+
+/* ---- Live order tracking -------------------------------------------------
+   The owner has been able to set preparing / out for delivery all along, and
+   the driver now marks pickup — but until this existed the customer only ever
+   saw a single word, and only if they reloaded the page. */
+const TRACK_STEPS = [
+  { key: "placed", label: "Placed" },
+  { key: "preparing", label: "Preparing" },
+  { key: "out for delivery", label: "On the way" },
+  { key: "delivered", label: "Delivered" },
+];
+
+function trackerHtml(o) {
+  const at = TRACK_STEPS.findIndex((s) => s.key === o.status);
+  // An unrecognised status shouldn't blank the tracker — fall back to step one.
+  const current = at === -1 ? 0 : at;
+  const steps = TRACK_STEPS.map((s, i) => `
+    <div class="track-step ${i < current ? "done" : ""} ${i === current ? "now" : ""}">
+      <div class="track-dot">${i < current ? "✓" : ""}</div>
+      <div class="track-label">${s.label}</div>
+    </div>`).join("");
+  const live = o.status !== "delivered"
+    ? `<div class="track-live"><i></i>Updating live</div>`
+    : "";
+  return `<div class="track">${steps}</div>${live}`;
+}
+
+/* Polling exists only to move that tracker, so it stops the moment every order
+   is delivered rather than hammering the server forever in a background tab. */
+let trackTimer = null;
+
+function scheduleTracking(orders) {
+  const anyLive = orders.some((o) => o.status !== "delivered");
+  if (trackTimer) { clearTimeout(trackTimer); trackTimer = null; }
+  if (!anyLive) return;
+  trackTimer = setTimeout(() => { loadOrders(); }, 15000);
+}
+
 async function loadOrders() {
   const list = document.getElementById("ordersList");
   const profileCard = document.getElementById("profileCard");
@@ -167,8 +205,9 @@ async function loadOrders() {
             <b>#${escapeAttr(o.order_number)}</b>
             <div class="text-muted" style="font-size:.82rem;">${escapeAttr(o.created_at)}</div>
           </div>
-          <span class="badge badge-success">${escapeAttr(o.status)}</span>
+          <span class="badge ${o.status === "delivered" ? "badge-success" : "badge-lime"}">${escapeAttr(o.status)}</span>
         </div>
+        ${trackerHtml(o)}
         <div style="margin-bottom:10px;">
           ${o.items.map((it) => `
             <div style="padding:4px 0;">
@@ -195,6 +234,7 @@ async function loadOrders() {
           </div>` : ""}
       </div>
     `).join("");
+    scheduleTracking(orders);
   } catch (err) {
     list.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">🛰️</div><h3>Can't reach the server</h3><p class="text-muted mb-0">Order history needs the WarpX backend running (<code>npm start</code>) — it's what talks to the database.</p></div>`;
   }

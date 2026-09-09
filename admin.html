@@ -67,6 +67,7 @@
     <button type="button" class="active" data-tab="orders">📦 Orders</button>
     <button type="button" data-tab="drivers">🚴 Drivers <span id="driverBadge" class="badge badge-lime" style="display:none;margin-left:4px;"></span></button>
     <button type="button" data-tab="earnings">💰 Earnings</button>
+    <button type="button" data-tab="payouts">💸 Payouts</button>
   </div>
 
   <div id="ordersPanel">
@@ -78,7 +79,12 @@
       <button type="button" data-val="laundry">🧺 Laundry</button>
       <button type="button" data-val="anything">✨ Anything</button>
     </div>
+    <div id="dueSoon"></div>
     <div id="ordersList"></div>
+  </div>
+
+  <div id="payoutsPanel" style="display:none;">
+    <div id="payoutsBody"></div>
   </div>
 
   <div id="earningsPanel" style="display:none;">
@@ -227,6 +233,7 @@ document.getElementById("mainTabs").addEventListener("click", (e) => {
   document.getElementById("ordersPanel").style.display = currentTab === "orders" ? "block" : "none";
   document.getElementById("driversPanel").style.display = currentTab === "drivers" ? "block" : "none";
   document.getElementById("earningsPanel").style.display = currentTab === "earnings" ? "block" : "none";
+  document.getElementById("payoutsPanel").style.display = currentTab === "payouts" ? "block" : "none";
   refreshCurrentTab();
 });
 
@@ -260,6 +267,7 @@ document.getElementById("driverFilter").addEventListener("click", (e) => {
 function refreshCurrentTab() {
   if (currentTab === "orders") loadOrders(true);
   else if (currentTab === "earnings") loadEarnings();
+  else if (currentTab === "payouts") loadPayouts();
   else loadDrivers(true);
 }
 
@@ -268,6 +276,102 @@ function refreshCurrentTab() {
    an order's subtotal is the cafe's or the shop's money passing through. */
 let earningsPeriod = "today";
 let lastEarnings = null;
+
+
+/* ---- Driver payouts ------------------------------------------------------
+   The earnings panel says what is owed in total; this says to whom, and lets
+   it be marked settled. Owed is always recomputed server-side from delivered
+   orders, so this ledger can never disagree with a driver's own hub. */
+let lastPayouts = null;
+
+async function loadPayouts() {
+  try {
+    const res = await fetch("/api/admin/payouts");
+    if (!res.ok) throw new Error("failed");
+    lastPayouts = await res.json();
+    renderPayouts();
+  } catch (e) {
+    document.getElementById("payoutsBody").innerHTML =
+      `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">🛰️</div><h3>Can't reach the server</h3><p class="text-muted mb-0">Payouts need the WarpX backend running.</p></div>`;
+  }
+}
+
+function renderPayouts() {
+  if (!lastPayouts) return;
+  const { rows, outstanding, settled } = lastPayouts;
+  const body = document.getElementById("payoutsBody");
+
+  if (!rows.length) {
+    body.innerHTML = `<div class="card center" style="padding:48px 24px;"><div style="font-size:2rem;margin-bottom:10px;">💸</div><h3>Nothing to pay yet</h3><p class="text-muted mb-0">Rows appear here once a driver completes a delivery.</p></div>`;
+    return;
+  }
+
+  // Grouped by driver: settling up is a per-person conversation, not a
+  // chronological one.
+  const byDriver = new Map();
+  for (const r of rows) {
+    if (!byDriver.has(r.driverId)) byDriver.set(r.driverId, { name: r.driverName, phone: r.driverPhone, days: [] });
+    byDriver.get(r.driverId).days.push(r);
+  }
+
+  body.innerHTML = `
+    <div class="grid grid-2" style="gap:16px;margin-bottom:16px;">
+      <div class="card" style="padding:22px;">
+        <span class="text-muted" style="font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;">Still owed</span>
+        <div style="font-size:1.9rem;font-weight:800;">${money(outstanding)}</div>
+      </div>
+      <div class="card" style="padding:22px;">
+        <span class="text-muted" style="font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;">Already paid</span>
+        <div style="font-size:1.9rem;font-weight:800;" class="text-muted">${money(settled)}</div>
+      </div>
+    </div>
+    ${[...byDriver.entries()].map(([id, d]) => {
+      const owed = d.days.filter((x) => !x.paid).reduce((s, x) => s + x.amount, 0);
+      return `
+      <div class="card" style="padding:22px;margin-bottom:14px;">
+        <div class="row-between" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+          <div><b>${esc(d.name)}</b> <span class="text-muted" style="font-size:.82rem;">${esc(d.phone)}</span></div>
+          <div style="font-weight:700;">${owed > 0 ? money(owed) + " owed" : `<span class="text-muted">all settled</span>`}</div>
+        </div>
+        ${d.days.map((r) => `
+          <div class="payout-row">
+            <div class="payout-who">
+              <b>${esc(r.day)}</b>
+              <small>${r.deliveries} ${r.deliveries === 1 ? "delivery" : "deliveries"} · tier ${r.tier} (${r.percent}%) · ₹${r.base} base + ₹${r.bonus} bonus</small>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span class="payout-amt ${r.paid ? "payout-paid" : ""}">${money(r.amount)}</span>
+              ${r.paid
+                ? `<button class="btn btn-ghost btn-sm" onclick="undoPayout(${r.payoutId})" title="Recorded ${esc(r.paidAt || "")}">✓ Paid · undo</button>`
+                : `<button class="btn btn-primary btn-sm" onclick="markPaid(${r.driverId}, '${esc(r.day)}')">Mark paid</button>`}
+            </div>
+          </div>`).join("")}
+      </div>`;
+    }).join("")}`;
+}
+
+async function markPaid(driverId, day) {
+  try {
+    const res = await fetch("/api/admin/payouts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ driverId, day }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Could not record that payout.");
+    showToast(`Marked ${money(data.paidAmount)} paid.`);
+    loadPayouts();
+  } catch (e) { showToast(e.message); }
+}
+
+async function undoPayout(id) {
+  if (!confirm("Undo this payout record? It goes back to unpaid.")) return;
+  try {
+    const res = await fetch(`/api/admin/payouts/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Could not undo that.");
+    showToast("Payout record removed.");
+    loadPayouts();
+  } catch (e) { showToast(e.message); }
+}
 
 async function loadEarnings() {
   try {
@@ -360,6 +464,8 @@ async function loadOrders(manual) {
 
     orders.forEach((o) => seen.add(o.id));
     saveSeenIds(seen);
+
+    alertDueSoon(orders);
     firstOrderLoad = false;
 
     renderOrders(orders);
@@ -378,6 +484,74 @@ async function loadOrders(manual) {
     }
     if (manual) showToast("Could not reach the server.");
   }
+}
+
+
+/* ---- Scheduled orders coming due -----------------------------------------
+   Scheduling was shipped without this, which meant a 7pm delivery sat on the
+   dashboard wearing a 🗓️ tag and nothing ever told the owner to start it. An
+   order nobody is reminded about is an order that gets missed. Fires once per
+   order, at the same moment it becomes claimable by a driver. */
+const DUE_KEY = "warpx_admin_alerted_due";
+
+function getAlertedIds() {
+  try { return new Set(JSON.parse(localStorage.getItem(DUE_KEY)) || []); }
+  catch (e) { return new Set(); }
+}
+function saveAlertedIds(set) {
+  try { localStorage.setItem(DUE_KEY, JSON.stringify([...set].slice(-500))); } catch (e) {}
+}
+
+function minutesUntilSlot(value) {
+  const when = parseSchedule(value);
+  return when ? (when.getTime() - Date.now()) / 60000 : null;
+}
+
+function dueSoonOrders(orders) {
+  return orders.filter((o) => {
+    if (!o.scheduled_for || o.status === "delivered") return false;
+    const mins = minutesUntilSlot(o.scheduled_for);
+    return mins !== null && mins <= DISPATCH_LEAD_MINUTES;
+  });
+}
+
+function alertDueSoon(orders) {
+  const due = dueSoonOrders(orders);
+  renderDueSoon(due);
+  if (firstOrderLoad) return; // don't shout about history on first paint
+
+  const alerted = getAlertedIds();
+  const fresh = due.filter((o) => !alerted.has(o.id));
+  if (fresh.length === 0) return;
+
+  beep();
+  const first = fresh[0];
+  showToast(`🗓️ Prep now: #${first.order_number} due ${formatSchedule(first.scheduled_for)}`);
+  if (window.Notification && Notification.permission === "granted") {
+    new Notification(fresh.length > 1 ? `🗓️ ${fresh.length} scheduled orders due soon` : "🗓️ Scheduled order due soon", {
+      body: fresh.length > 1
+        ? fresh.map((o) => `#${o.order_number} — ${formatSchedule(o.scheduled_for)}`).join("\n")
+        : `#${first.order_number} is due ${formatSchedule(first.scheduled_for)}. Time to start it.`,
+      tag: "warpx-due-" + first.id,
+    });
+  }
+  fresh.forEach((o) => alerted.add(o.id));
+  saveAlertedIds(alerted);
+}
+
+function renderDueSoon(due) {
+  const box = document.getElementById("dueSoon");
+  if (!box) return;
+  if (!due.length) { box.innerHTML = ""; return; }
+  box.innerHTML = `
+    <div class="card" style="padding:18px 20px;margin-bottom:16px;border:1px solid var(--violet);background:var(--grad-warp-soft);">
+      <b style="display:block;margin-bottom:6px;">🗓️ Due soon — start these now</b>
+      ${due.map((o) => `
+        <div class="row-between" style="padding:5px 0;font-size:.9rem;flex-wrap:wrap;gap:8px;">
+          <span><b>#${esc(o.order_number)}</b> · ${esc(o.customer_name || "customer")} · ${o.items.length} item${o.items.length===1?"":"s"}</span>
+          <span style="font-weight:700;">${esc(formatSchedule(o.scheduled_for))}</span>
+        </div>`).join("")}
+    </div>`;
 }
 
 function renderOrders(orders) {

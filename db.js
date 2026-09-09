@@ -44,6 +44,7 @@ db.exec(`
     lng REAL,
     address TEXT,
     driver_id INTEGER REFERENCES drivers(id),
+    delivery_otp TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -80,7 +81,7 @@ db.exec(`
 for (const col of ["password_hash TEXT", "password_salt TEXT"]) {
   try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch (e) {}
 }
-for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)"]) {
+for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)", "delivery_otp TEXT"]) {
   try { db.exec(`ALTER TABLE orders ADD COLUMN ${col}`); } catch (e) {}
 }
 

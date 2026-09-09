@@ -457,6 +457,18 @@ footer a:hover{ color:#fff; }
 }
 .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
 
+/* delivery handover code — shown to the customer only */
+.otp-box{
+  background:var(--grad-warp-soft); border:1.5px dashed var(--violet);
+  border-radius:var(--radius); padding:16px; margin:16px 0;
+}
+.otp-label{ font-size:.72rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--violet); }
+.otp-code{
+  font-family:var(--font-head); font-weight:700; font-size:2.2rem; letter-spacing:.3em;
+  color:var(--ink); margin:6px 0 4px; text-indent:.3em;
+}
+.otp-hint{ font-size:.78rem; color:var(--ink-soft); margin:0; }
+
 /* scroll reveal — content animates in as it enters the viewport */
 .reveal{
   opacity:0; transform:translateY(28px);

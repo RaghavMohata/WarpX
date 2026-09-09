@@ -297,7 +297,7 @@ async function submitOrder(btn) {
       if (res.status === 401) setTimeout(() => { window.location.href = "login.html?redirect=checkout.html"; }, 1200);
       return;
     }
-    showOrderModal(data.orderNumber, `${data.etaMin} min`, true, paymentLabel);
+    showOrderModal(data.orderNumber, `${data.etaMin} min`, true, paymentLabel, data.deliveryOtp);
     clearCart();
   } catch (err) {
     // No backend reachable — keep the demo usable with a local-only order.

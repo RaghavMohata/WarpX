@@ -160,13 +160,19 @@ function getWarpxUser() {
   catch (e) { return null; }
 }
 
-function showOrderModal(orderNumber, eta, persisted, paymentLabel) {
+function showOrderModal(orderNumber, eta, persisted, paymentLabel, deliveryOtp) {
   const modalBody = document.getElementById("modalBody");
   if (modalBody) {
     modalBody.innerHTML = `
       <div class="modal-icon">✅</div>
       <h3>Order placed!</h3>
       <p class="text-muted">Order <b>#${orderNumber}</b> is being prepped. At warp speed, expect it in about <b>${eta}</b>.</p>
+      ${deliveryOtp ? `
+        <div class="otp-box">
+          <span class="otp-label">Your delivery code</span>
+          <div class="otp-code">${deliveryOtp}</div>
+          <p class="otp-hint">Give this to the delivery partner when your order arrives — it's how they confirm the handover. It's saved in My Orders too.</p>
+        </div>` : ""}
       <p class="text-muted" style="font-size:.85rem;">${paymentLabel || "Cash on delivery."} ${persisted ? "Saved to your order history." : "This is a local demo checkout — no server was detected, so nothing was saved to a database."}</p>
       ${persisted ? `<a href="orders.html" class="btn btn-ghost btn-block" style="margin-bottom:10px;">View order history</a>` : ""}
       <button class="btn btn-primary btn-block" onclick="closeModal()">Done</button>

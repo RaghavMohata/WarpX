@@ -75,7 +75,7 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `GET /api/drivers/:id/summary` | One driver's progress tier plus the orders they're currently carrying |
 | `GET /api/orders/available` | Orders no driver has claimed yet — the Driver Hub's job board |
 | `PATCH /api/orders/:id/claim` | A driver claims an unassigned order (rejects if someone else got there first) |
-| `PATCH /api/orders/:id/deliver` | A driver marks their own order delivered — this is what advances the progress bar |
+| `PATCH /api/orders/:id/deliver` | A driver completes their own order — requires the customer's 4-digit delivery code, and is what advances the progress bar |
 
 `lib/zone.js` is a server-side port of the Haversine/zone logic in `js/location.js` — the browser copy is for instant map feedback before you submit; the server copy is what actually gets stored, so it's the source of truth.
 
@@ -148,10 +148,20 @@ Once you approve someone in the admin dashboard, they can sign in at `driver.htm
 
 - The **Available orders** board lists every order no driver has claimed yet (refreshing itself every 10 seconds).
 - **Accept delivery** claims one. The `driver_id IS NULL` guard is inside the `UPDATE` itself, so if two drivers tap Accept at the same moment, the second one changes 0 rows and gets told "another driver just took that one" — rather than both of them thinking it's theirs.
-- **Mark delivered** is what advances the bar, and only works on orders assigned to *that* driver.
+- **Complete delivery** is what advances the bar. It only works on orders assigned to *that* driver, and requires the customer's delivery code (below).
 - Each job card shows what to collect (COD amount vs. already-settled UPI), the landmark note, and a **Navigate** button using the order's saved coordinates.
 
 The owner's dashboard now also shows which driver is carrying each order, or "no driver yet".
+
+## Delivery codes (handover OTP)
+
+"Delivered" used to mean nothing more than the driver tapping a button. Now every order gets a **4-digit delivery code** at checkout that only the customer sees, and the driver has to type it in to complete the delivery — so a completed order is the customer's confirmation that the handover actually happened, not the driver's word for it.
+
+- The code is generated server-side with `crypto.randomInt` when the order is placed, and shown to the customer twice: in the order-confirmation modal, and on their order card in `orders.html` (where it disappears once the order is delivered).
+- The driver's job card has a 4-digit field. Wrong code → the delivery is refused and the order stays open, with the typed digits left on screen so a typo can be corrected rather than retyped.
+- **The code never leaves the customer.** It's stripped from every response a driver or the owner dashboard can read (`/api/orders`, `/api/orders/available`, the claim response, and the driver summary) via a `withoutOtp()` helper — if a driver could read it, the code would prove nothing. The customer's own `/api/orders/:userId` is the only endpoint that returns it. There's a test that asserts the code appears nowhere in the driver page's HTML.
+- Orders placed *before* delivery codes existed have no code stored, and stay completable without one rather than being stranded forever.
+- **Escape hatch:** if a customer is unreachable or has lost their code, the owner can still force an order to `delivered` from the status buttons in `admin.html`. That's deliberate — but it does mean the admin PIN is the way around the code, which is one more reason to change it from the default.
 
 **Honest caveat on driver sign-in:** drivers never set a password — they only ever filled in the careers form — so signing in with just a phone number *identifies* rather than *authenticates*. Anyone who knows an approved driver's number could open their hub. That's fine for a small town where you personally approved every driver, but it's the first thing to fix if this grows: give drivers a real password (the customer-side `lib/auth.js` hashing is already there to reuse).
 

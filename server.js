@@ -1,6 +1,7 @@
 /* WarpX local server — serves the static site and a small JSON API
    backed by SQLite (warpx.db, created automatically on first run). */
 const express = require("express");
+const crypto = require("crypto");
 const path = require("path");
 const db = require("./db");
 const { classifyZone } = require("./lib/zone");
@@ -17,6 +18,15 @@ function getLatestLocation(userId) {
 
 function publicUser(row) {
   return { id: row.id, name: row.name, phone: row.phone };
+}
+
+// The delivery OTP is the customer's proof that a handover actually happened,
+// so it must never travel to anyone but them — strip it from every response
+// a driver (or the owner dashboard) can read. If a driver could read it, the
+// code would prove nothing.
+function withoutOtp(order) {
+  const { delivery_otp, ...rest } = order;
+  return rest;
 }
 
 // Create a new account — phone + password, hashed with a per-user salt.
@@ -85,6 +95,8 @@ app.post("/api/orders", (req, res) => {
   const loc = getLatestLocation(userId);
   const etaMin = loc ? loc.eta_min : "20-30";
   const orderNumber = "WPX" + Math.floor(100000 + Math.random() * 900000);
+  // 4-digit handover code, only ever shown to the customer.
+  const deliveryOtp = String(crypto.randomInt(1000, 10000));
 
   // Order + its line items must land together — wrap in a transaction so a
   // failure partway through (e.g. a bad item) never leaves an order with
@@ -94,13 +106,14 @@ app.post("/api/orders", (req, res) => {
   try {
     const orderInfo = db
       .prepare(
-        `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id, lat, lng, address)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id, lat, lng, address, delivery_otp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         orderNumber, userId, subtotal, deliveryFee, total, etaMin, method,
         method === "upi" ? upiId || null : null,
-        loc ? loc.lat : null, loc ? loc.lng : null, loc ? loc.address : null
+        loc ? loc.lat : null, loc ? loc.lng : null, loc ? loc.address : null,
+        deliveryOtp
       );
     orderId = orderInfo.lastInsertRowid;
 
@@ -117,7 +130,7 @@ app.post("/api/orders", (req, res) => {
     return res.status(400).json({ error: "Could not place order: " + err.message });
   }
 
-  res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed" });
+  res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed", deliveryOtp });
 });
 
 // All orders across all customers — for the owner's dashboard (admin.html).
@@ -133,7 +146,7 @@ app.get("/api/orders", (req, res) => {
     )
     .all();
   const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
-  res.json(orders.map((o) => ({ ...o, items: itemsStmt.all(o.id) })));
+  res.json(orders.map((o) => ({ ...withoutOtp(o), items: itemsStmt.all(o.id) })));
 });
 
 // Orders nobody has picked up yet — the driver app's job board.
@@ -148,7 +161,7 @@ app.get("/api/orders/available", (req, res) => {
     )
     .all();
   const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
-  res.json(orders.map((o) => ({ ...o, items: itemsStmt.all(o.id) })));
+  res.json(orders.map((o) => ({ ...withoutOtp(o), items: itemsStmt.all(o.id) })));
 });
 
 // Order history for a single user.
@@ -238,7 +251,7 @@ app.get("/api/drivers/:id/summary", (req, res) => {
   res.json({
     driver: { id: driver.id, name: driver.name, phone: driver.phone, vehicleType: driver.vehicle_type },
     progress: tierFor(completed),
-    active: active.map((o) => ({ ...o, items: itemsStmt.all(o.id) })),
+    active: active.map((o) => ({ ...withoutOtp(o), items: itemsStmt.all(o.id) })),
   });
 });
 
@@ -258,13 +271,30 @@ app.patch("/api/orders/:id/claim", (req, res) => {
   if (info.changes === 0) {
     return res.status(409).json({ error: "Another driver just took that one." });
   }
-  res.json(db.prepare("SELECT * FROM orders WHERE id = ?").get(id));
+  res.json(withoutOtp(db.prepare("SELECT * FROM orders WHERE id = ?").get(id)));
 });
 
 // Mark one of your own orders delivered — this is what moves the progress bar.
+// Requires the customer's handover OTP, so "delivered" means the customer
+// actually confirmed it rather than the driver just saying so.
 app.patch("/api/orders/:id/deliver", (req, res) => {
   const id = Number(req.params.id);
-  const { driverId } = req.body || {};
+  const { driverId, otp } = req.body || {};
+
+  const order = db.prepare("SELECT * FROM orders WHERE id = ? AND driver_id = ?").get(id, driverId);
+  if (!order) return res.status(403).json({ error: "That order isn't assigned to you." });
+  if (order.status === "delivered") return res.status(409).json({ error: "That order is already marked delivered." });
+
+  // Orders placed before delivery codes existed have no OTP to check, so they
+  // stay completable rather than being stranded forever.
+  if (order.delivery_otp) {
+    const given = String(otp || "").trim();
+    if (!given) return res.status(400).json({ error: "Ask the customer for their 4-digit delivery code." });
+    if (given !== order.delivery_otp) {
+      return res.status(401).json({ error: "That code doesn't match. Check it with the customer." });
+    }
+  }
+
   const info = db
     .prepare("UPDATE orders SET status = 'delivered' WHERE id = ? AND driver_id = ?")
     .run(id, driverId);

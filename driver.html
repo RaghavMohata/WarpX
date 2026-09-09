@@ -42,6 +42,13 @@
   .job-head{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
   .job-items{ font-size:.88rem; color:var(--ink-soft); margin:8px 0; }
   .job-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .otp-entry{ width:100%; margin-top:4px; }
+  .otp-entry label{ display:block; font-size:.78rem; font-weight:600; color:var(--ink-soft); margin-bottom:6px; }
+  .otp-entry-row{ display:flex; gap:8px; flex-wrap:wrap; }
+  .otp-entry-row input{
+    width:110px; flex:0 0 auto; text-align:center; letter-spacing:.3em; text-indent:.3em;
+    font-family:var(--font-head); font-weight:700; font-size:1.1rem; padding:9px 12px;
+  }
   .sec-head{ display:flex; align-items:center; gap:10px; margin:28px 0 14px; }
   .sec-head h3{ margin:0; }
   .sec-head .line{ flex:1; height:1px; background:var(--line); }
@@ -240,11 +247,35 @@ async function refresh(manual) {
     document.getElementById("statActive").textContent = summary.active.length;
     document.getElementById("statAvailable").textContent = available.length;
 
+    // This list re-renders every 10 seconds. Without carrying the typed
+    // digits (and the focus) across the re-render, a driver mid-way through
+    // entering a code would watch it vanish under them.
+    const typedOtps = {};
+    let focusedOtpId = null;
+    document.querySelectorAll("#activeList input[id^='otp-']").forEach((el) => {
+      if (el.value) typedOtps[el.id] = el.value;
+      if (document.activeElement === el) focusedOtpId = el.id;
+    });
+
     document.getElementById("activeList").innerHTML = summary.active.length
       ? summary.active
-          .map((o) => orderCard(o, `<button class="btn btn-primary btn-sm" onclick="markDelivered(${o.id}, this)">✓ Mark delivered</button>`))
+          .map((o) => orderCard(o, `
+            <div class="otp-entry">
+              <label for="otp-${o.id}">Ask the customer for their 4-digit delivery code</label>
+              <div class="otp-entry-row">
+                <input type="text" id="otp-${o.id}" inputmode="numeric" maxlength="4" placeholder="0000"
+                       onkeydown="if(event.key==='Enter')markDelivered(${o.id}, this.parentElement.querySelector('button'))">
+                <button class="btn btn-primary btn-sm" onclick="markDelivered(${o.id}, this)">✓ Complete delivery</button>
+              </div>
+            </div>`))
           .join("")
       : `<div class="card center" style="padding:36px 22px;"><div style="font-size:1.8rem;margin-bottom:8px;">📭</div><p class="text-muted mb-0">Nothing on the way right now — accept an order below.</p></div>`;
+
+    Object.entries(typedOtps).forEach(([id, value]) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value;
+    });
+    if (focusedOtpId) document.getElementById(focusedOtpId)?.focus();
 
     document.getElementById("availableList").innerHTML = available.length
       ? available
@@ -286,17 +317,29 @@ async function claimOrder(orderId, btn) {
 
 async function markDelivered(orderId, btn) {
   const driver = getDriver();
+  const input = document.getElementById("otp-" + orderId);
+  const otp = input ? input.value.trim() : "";
+  if (!otp) {
+    if (input) input.focus();
+    return showToast("Ask the customer for their 4-digit delivery code.");
+  }
+
   btn.disabled = true;
-  btn.textContent = "Saving...";
+  btn.textContent = "Checking...";
   try {
     const res = await fetch(`/api/orders/${orderId}/deliver`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ driverId: driver.id }),
+      body: JSON.stringify({ driverId: driver.id, otp }),
     });
     const data = await res.json();
     if (!res.ok) {
       showToast(data.error || "Could not update that order.");
+      // Leave the wrong code on screen so they can correct a typo rather
+      // than retype the whole thing.
+      btn.disabled = false;
+      btn.textContent = "✓ Complete delivery";
+      if (input) input.focus();
       return;
     }
     showToast(
@@ -304,10 +347,11 @@ async function markDelivered(orderId, btn) {
         ? "Delivered! You're at the top tier 🎉"
         : `Delivered! ${data.progress.ordersToNext} more to reach ${data.progress.nextPercent}%.`
     );
+    refresh(true); // only on success — a failed attempt keeps the typed code
   } catch (e) {
     showToast("Could not reach the server.");
-  } finally {
-    refresh(true);
+    btn.disabled = false;
+    btn.textContent = "✓ Complete delivery";
   }
 }
 

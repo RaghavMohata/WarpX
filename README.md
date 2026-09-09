@@ -150,14 +150,28 @@ Applications land in the **Drivers** tab of `admin.html`, filterable by status (
 
 Once you approve someone in the admin dashboard, they can sign in at `driver.html` with the phone number they applied with, and get their own dashboard — separate from the customer site and from your owner dashboard.
 
-**The progress bar.** Every driver starts at **5%** and climbs **10 points for every 10 deliveries they complete** — 5 → 15 → 25 → 35 → 45, all odd numbers — filling toward a **50% cap**. Tick marks label each tier and light up in lime as they're passed.
+**The progress bar.** Five tiers, filling toward a **50% goal**:
+
+| Tier | Rate | Unlocked at |
+| --- | --- | --- |
+| 1 | 5% | from the start |
+| 2 | 15% | 3 deliveries |
+| 3 | 25% | 8 deliveries |
+| 4 | 35% | 15 deliveries |
+| 5 | 45% | 25 deliveries |
+
+The ladder is **front-loaded on purpose**. The steps widen — 3, 5, 7, 10 — so a new rider gets promoted on their first shift instead of grinding ten jobs before anything visibly changes, while the top tier still takes real work. Percentages stay odd and the goal stays 50%, both as originally specified.
+
+It lives in `lib/tier.js` as a **plain table of thresholds, not arithmetic**. The previous version derived every tier from four interlocking constants (start, step, orders-per-tier, max), which forced every tier to cost the same and made retuning a puzzle — the reason it sat at "10 deliveries per step" long after that pace stopped making sense. A table is readable at a glance, retuned by editing one number, and can express uneven steps at all. Want a flat five deliveries per tier instead? Change the `from` values to 0/5/10/15/20 and nothing else moves.
+
+Tick marks label each tier **with the jobs that unlock it** ("15% · 3 jobs"), so the ladder explains itself on the bar rather than living only in the owner's head, and light up in lime as they're passed.
 
 Two different numbers drive that bar, which matters:
 
-- `percent` is the **tier** — the headline number, which only moves on the odd ladder every 10 deliveries.
-- `barPercent` is the **fill**, and it advances with *every single delivery*, sliding between one tier mark and the next (1 delivery ≈ 1 point). It lands exactly on 15/25/35/45 at deliveries 10/20/30/40.
+- `percent` is the **tier** — the headline number, which only moves on promotion.
+- `barPercent` is the **fill**, and it advances with *every single delivery*, interpolating between one tier mark and the next. It lands exactly on 15/25/35/45 at deliveries 3/8/15/25.
 
-Using the tier for the fill made the bar look frozen for nine deliveries at a time, which read as broken. The header also shows progress within the current tier ("Tier 2 of 5 · 3/10 toward the next"). Both numbers come from `lib/tier.js` and are computed server-side, so neither can be fudged from the browser.
+Using the tier for the fill made the bar look frozen between promotions, which read as broken. Because early tiers are short, each delivery moves the bar a lot at the start (a first delivery is worth ~3.3 points) and less later on — the movement shrinks as the promotions get bigger. The header also shows progress within the current tier ("Tier 2 of 5 · 2/5 toward the next"). Both numbers come from `lib/tier.js` and are computed server-side, so neither can be fudged from the browser.
 
 **Why it needed order-claiming.** A progress bar is only worth having if the number behind it is real, so orders now carry a `driver_id`:
 

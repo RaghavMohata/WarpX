@@ -26,10 +26,11 @@
     background:linear-gradient(90deg,var(--lime),#8FE04A);
     transition:width .9s cubic-bezier(.16,.84,.44,1);
   }
-  .prog-ticks{ position:relative; height:34px; margin-top:8px; }
+  .prog-ticks{ position:relative; height:48px; margin-top:8px; }
   .prog-tick{ position:absolute; transform:translateX(-50%); text-align:center; font-size:.72rem; color:rgba(255,255,255,.65); }
   .prog-tick.done{ color:var(--lime); font-weight:700; }
   .prog-tick i{ display:block; width:2px; height:7px; background:currentColor; margin:0 auto 4px; border-radius:2px; opacity:.8; }
+  .prog-tick em{ display:block; font-style:normal; font-size:.64rem; opacity:.6; margin-top:1px; white-space:nowrap; }
   .prog-goal{ color:#fff; font-weight:700; }
 
   .stat-row{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:24px; }
@@ -200,13 +201,15 @@ function renderProgress(p) {
     ? `<b>Top tier reached 🎉</b><br>${p.completed} deliveries completed`
     : `<b>${p.ordersToNext} more ${p.ordersToNext === 1 ? "delivery" : "deliveries"}</b><br>to reach ${p.nextPercent}%`;
 
+  // Each tick names the deliveries that unlock it, so the ladder explains
+  // itself on the bar instead of living only in someone's head.
   document.getElementById("progTicks").innerHTML = p.ladder
-    .map((val) => `
-      <div class="prog-tick ${val <= p.percent ? "done" : ""}" style="left:${(val / p.goal) * 100}%;">
-        <i></i>${val}%
+    .map((t) => `
+      <div class="prog-tick ${t.percent <= p.percent ? "done" : ""}" style="left:${(t.percent / p.goal) * 100}%;">
+        <i></i>${t.percent}%<em>${t.from === 0 ? "start" : t.from + " jobs"}</em>
       </div>`)
     .join("") +
-    `<div class="prog-tick prog-goal" style="left:100%;"><i></i>${p.goal}%</div>`;
+    `<div class="prog-tick prog-goal" style="left:100%;"><i></i>${p.goal}%<em>goal</em></div>`;
 }
 
 function orderCard(o, action) {

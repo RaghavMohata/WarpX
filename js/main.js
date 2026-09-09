@@ -53,4 +53,41 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-open-cart]").forEach((btn) =>
     btn.addEventListener("click", openDrawer)
   );
+
+  initScrollReveal();
 });
+
+// Fade/slide content in as it scrolls into view. Runs once at page load, so
+// it only ever touches static page structure — content injected later
+// (cart drawer, order lists, driver lists) is unaffected and just renders
+// normally, which is the right call since scroll-reveal on a list that's
+// still loading would look like a glitch, not a feature.
+function initScrollReveal() {
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (!("IntersectionObserver" in window)) return;
+
+  const targets = document.querySelectorAll(".card, .service-card, .section-head, .menu-cat, .hero-stat");
+  if (!targets.length) return;
+
+  const staggerCount = new Map();
+  targets.forEach((el) => {
+    const parent = el.parentElement;
+    const idx = staggerCount.get(parent) || 0;
+    staggerCount.set(parent, idx + 1);
+    el.classList.add("reveal");
+    el.style.transitionDelay = Math.min(idx, 5) * 70 + "ms";
+  });
+
+  const io = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("reveal-in");
+          io.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.1, rootMargin: "0px 0px -30px 0px" }
+  );
+  targets.forEach((el) => io.observe(el));
+}

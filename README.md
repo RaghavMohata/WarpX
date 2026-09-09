@@ -154,6 +154,13 @@ This keeps the precision (real coordinates, an accurate radius check) while keep
 
 `js/menu-data.js` holds the full Picasso Cafe menu extracted from the supplied PDF (Cold Brews, Mocktails, Munchies, Shakes, Speciality Coffees, Others), including taglines/notes and the one MOQ-2 item.
 
+## Design refresh: scroll animation, colors, buttons
+
+- **Scroll-reveal animation** — `js/main.js` runs an `IntersectionObserver` (`initScrollReveal()`) once per page load that fades/slides in cards, service tiles, section headers, and menu categories as they enter the viewport, with a slight stagger between siblings. It only touches static page content present at load — anything injected later (cart items, order lists, driver applications) renders normally, since animating a list that's still loading would read as a glitch, not a feature. Respects `prefers-reduced-motion: reduce` (skips the animation entirely for anyone who's asked their OS for less motion).
+- **Colour refresh** — the core `--grad-warp` brand gradient picked up an extra violet stop for more depth, plus new tinted-violet shadow tokens (`--shadow-violet`, `--shadow-violet-sm`) used on hover states instead of flat grey shadows, for a more "branded" glow. Per-service colors (food/grocery/medicine/laundry/anything) are unchanged — they're already distinct and consistently used across every page, so re-theming them risked more confusion than payoff.
+- **Button & tile animation** — every `.btn` now lifts on hover and settles on click; `.btn-primary` additionally has an animated gradient sweep. Service tiles get a lift, a soft violet glow, and an icon pop on hover; menu items and "Add" buttons got matching micro-interactions.
+- **Copy pass** — tightened the homepage's hero line and all five service-card descriptions for punchier, more consistent tone.
+
 ## Notes
 
 - Checkout is **Cash on Delivery only** — no payment gateway is wired up. There's no real order fulfillment or delivery dispatch either; placing an order just persists it.

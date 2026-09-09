@@ -16,13 +16,21 @@ npm start       # runs server.js — serves the site AND the API
 
 ### One-click start
 
-Instead of the commands above, you can just double-click a launcher for your OS — it installs dependencies on first run, starts the server, and opens the site in your browser automatically:
+Instead of the commands above, you can just double-click a launcher for your OS — it installs dependencies on first run, starts the server, and opens **all three views in three browser tabs**:
+
+| Tab | For | URL |
+|---|---|---|
+| Customer site | the people ordering | `http://localhost:3000/` |
+| Owner dashboard | you, watching orders come in | `http://localhost:3000/admin.html` |
+| Driver Hub | your delivery partners | `http://localhost:3000/driver.html` |
 
 - **Windows**: `start.bat`
 - **Mac**: `start.command` (first time only, Finder may warn it's from an "unidentified developer" — right-click → Open once to approve it)
 - **Linux**: `start.sh` (your file manager may need "Allow executing file as program" checked in its Properties first, or run `./start.sh` from a terminal)
 
-Whichever you use, closing that window/terminal (or pressing Ctrl+C in it) stops the server.
+It's still **one server on one port** — those are three pages of the same app, not three separate things to run. On Mac and Linux the launcher waits until the server actually answers before opening the tabs, rather than guessing with a fixed delay and landing on a "can't connect" page when startup runs slow.
+
+Whichever you use, closing that window/terminal (or pressing Ctrl+C in it) stops the server — and all three tabs with it.
 
 Requires **Node.js 22.5+** (for `node:sqlite`). Check with `node -v`; if you're on an older Node, upgrade first — the built-in SQLite module won't be there otherwise. You'll see an "experimental feature" warning in the console when it starts — that's expected, SQLite support is still marked experimental in Node itself, but it's stable enough for local use here.
 

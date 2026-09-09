@@ -8,6 +8,7 @@ const { classifyZone } = require("./lib/zone");
 const { hashPassword, verifyPassword } = require("./lib/auth");
 const { tierFor } = require("./lib/tier");
 const { feeFor } = require("./lib/fee");
+const { validateSchedule, isDueForDispatch } = require("./lib/schedule");
 
 const app = express();
 app.use(express.json());
@@ -179,7 +180,7 @@ app.delete("/api/addresses/:id", (req, res) => {
 // Place an order — computes totals server-side and persists items.
 // Requires a logged-in account: orders are never anonymous.
 app.post("/api/orders", (req, res) => {
-  const { userId, items, paymentMethod, upiId, addressId } = req.body || {};
+  const { userId, items, paymentMethod, upiId, addressId, scheduleDate, scheduleTime } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "items are required" });
   }
@@ -188,6 +189,16 @@ app.post("/api/orders", (req, res) => {
   if (!user) return res.status(401).json({ error: "Please log in to place an order." });
 
   const method = paymentMethod === "upi" ? "upi" : "cod";
+
+  /* An order is either ASAP (no slot) or scheduled. The browser validates the
+     same way via lib/schedule.js, but this is the check that counts — it runs
+     against the server's clock, which is the one dispatch actually uses. */
+  let scheduledFor = null;
+  if (scheduleDate || scheduleTime) {
+    const check = validateSchedule(scheduleDate, scheduleTime);
+    if (!check.ok) return res.status(400).json({ error: check.error });
+    scheduledFor = check.value;
+  }
 
   const subtotal = items.reduce((sum, it) => sum + (Number(it.price) || 0) * (it.qty || 1), 0);
   // Priced server-side from the real subtotal — the browser's figure is only
@@ -219,15 +230,16 @@ app.post("/api/orders", (req, res) => {
   try {
     const orderInfo = db
       .prepare(
-        `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id, lat, lng, address, delivery_otp, address_label)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id, lat, lng, address, delivery_otp, address_label, scheduled_for)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         orderNumber, userId, subtotal, deliveryFee, total, etaMin, method,
         method === "upi" ? upiId || null : null,
         loc ? loc.lat : null, loc ? loc.lng : null, loc ? loc.address : null,
         deliveryOtp,
-        chosenAddress ? chosenAddress.label : null
+        chosenAddress ? chosenAddress.label : null,
+        scheduledFor
       );
     orderId = orderInfo.lastInsertRowid;
 
@@ -244,7 +256,7 @@ app.post("/api/orders", (req, res) => {
     return res.status(400).json({ error: "Could not place order: " + err.message });
   }
 
-  res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed", deliveryOtp, addressLabel: chosenAddress ? chosenAddress.label : null });
+  res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed", deliveryOtp, addressLabel: chosenAddress ? chosenAddress.label : null, scheduledFor });
 });
 
 // All orders across all customers — for the owner's dashboard (admin.html).
@@ -260,6 +272,8 @@ app.get("/api/orders", (req, res) => {
     )
     .all();
   const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
+  // Unfiltered on purpose: the owner needs to see scheduled orders well ahead
+  // of their slot in order to prep for them.
   res.json(orders.map((o) => ({ ...withoutOtp(o), items: itemsStmt.all(o.id) })));
 });
 
@@ -275,7 +289,11 @@ app.get("/api/orders/available", (req, res) => {
     )
     .all();
   const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
-  res.json(orders.map((o) => ({ ...withoutOtp(o), items: itemsStmt.all(o.id) })));
+  /* A scheduled order stays off the driver board until its slot is close.
+     Showing a 7pm delivery at 10am invites a driver to claim it and then sit
+     on it, which looks like progress while nothing is actually moving. */
+  const due = orders.filter((o) => isDueForDispatch(o.scheduled_for));
+  res.json(due.map((o) => ({ ...withoutOtp(o), items: itemsStmt.all(o.id) })));
 });
 
 // Order history for a single user.

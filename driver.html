@@ -123,6 +123,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="lib/schedule.js"></script>
 <script>
 const DRIVER_KEY = "warpx_driver";
 
@@ -228,7 +229,7 @@ function orderCard(o, action) {
         </div>
       </div>
       <div class="job-items">${items}</div>
-      <div class="text-muted" style="font-size:.82rem;">${o.address_label ? "<b>" + esc(o.address_label) + "</b> · " : ""}${esc(o.address) || "No landmark note given"}</div>
+      <div class="text-muted" style="font-size:.82rem;">${o.scheduled_for ? `<span class="sched-tag">🗓️ ${esc(formatSchedule(o.scheduled_for))}</span> · ` : ""}${o.address_label ? "<b>" + esc(o.address_label) + "</b> · " : ""}${esc(o.address) || "No landmark note given"}</div>
       <div class="job-actions">${maps}${action}</div>
     </div>`;
 }

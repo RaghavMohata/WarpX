@@ -546,3 +546,16 @@ footer a:hover{ color:#fff; }
   padding:16px; border:1px dashed var(--line); border-radius:var(--radius-sm);
   font-size:.9rem; color:var(--muted); margin-bottom:10px;
 }
+
+/* ---- Scheduled orders --------------------------------------------------- */
+.sched-ok, .sched-bad{
+  margin-top:12px; padding:9px 12px; border-radius:var(--radius-sm);
+  font-size:.86rem; line-height:1.35;
+}
+.sched-ok{ background:rgba(132,204,22,.12); border:1px solid rgba(132,204,22,.45); color:#3f6212; }
+.sched-bad{ background:rgba(234,88,12,.10); border:1px solid rgba(234,88,12,.40); color:#9A3412; }
+.sched-tag{
+  display:inline-flex; align-items:center; gap:5px;
+  background:var(--grad-warp-soft); border:1px solid rgba(124,58,237,.35); color:var(--violet);
+  font-size:.76rem; font-weight:700; padding:3px 9px; border-radius:999px;
+}

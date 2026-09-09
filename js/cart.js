@@ -177,13 +177,15 @@ function getWarpxUser() {
   catch (e) { return null; }
 }
 
-function showOrderModal(orderNumber, eta, persisted, paymentLabel, deliveryOtp) {
+function showOrderModal(orderNumber, eta, persisted, paymentLabel, deliveryOtp, scheduledFor) {
   const modalBody = document.getElementById("modalBody");
   if (modalBody) {
     modalBody.innerHTML = `
       <div class="modal-icon">✅</div>
       <h3>Order placed!</h3>
-      <p class="text-muted">Order <b>#${orderNumber}</b> is being prepped. At warp speed, expect it in about <b>${eta}</b>.</p>
+      <p class="text-muted">${scheduledFor
+        ? `Order <b>#${orderNumber}</b> is booked in. We'll have it with you <b>${formatSchedule(scheduledFor)}</b>.`
+        : `Order <b>#${orderNumber}</b> is being prepped. At warp speed, expect it in about <b>${eta}</b>.`}</p>
       ${deliveryOtp ? `
         <div class="otp-box">
           <span class="otp-label">Your delivery code</span>

@@ -256,6 +256,29 @@ That last step is what keeps the change backwards-compatible: an existing custom
 
 Edit and delete are scoped with `WHERE id = ? AND user_id = ?`, so one customer cannot touch another's addresses. That said, `userId` still arrives from the client like everywhere else in this app — see "Known limitations".
 
+## Scheduled orders
+
+Every order is either **ASAP** (the default and the fast path) or booked for a slot. Checkout has a two-way toggle; picking "Schedule it" reveals native date and time inputs, pre-filled with the next slot that would actually be accepted, so the common case is one tap rather than a date-picker expedition.
+
+**The rules live in `lib/schedule.js`**, loaded both ways like `lib/fee.js` — `require`d by `server.js` and served to the browser — so checkout refuses exactly the slots the server would refuse. Nobody picks a time only to be rejected after hitting Place order.
+
+| Rule | Value |
+| --- | --- |
+| Service window | 08:00 – 22:00 |
+| Minimum lead time | 30 minutes |
+| Furthest ahead | 7 days |
+| Reaches the driver board | 45 minutes before the slot |
+
+The date input is bounded with `min`/`max` to the bookable window, so an impossible day can't even be offered — but the server validates independently anyway, against its own clock, because that's the clock dispatch actually runs on.
+
+**Scheduled orders stay off the driver board until 45 minutes before their slot.** A 7pm delivery visible at 10am invites a driver to claim it and then sit on it, which looks like progress on the board while nothing is moving. The owner's dashboard is deliberately *not* filtered this way — advance notice is exactly what you need in order to prep, so `GET /api/orders` shows everything while `GET /api/orders/available` shows only what's due.
+
+**On timezones:** slots are stored as plain local wall-clock strings (`2026-09-10 19:00`), not UTC. The shop, the drivers and the customers are all in one town in one timezone, so local time removes an entire class of conversion bugs at zero cost. A second town in another timezone would need this revisited — the parsing is deliberately explicit (never bare `new Date(str)`, which parses some formats as UTC and some as local depending on the engine) so the change would be contained to that one file.
+
+The slot is shown wherever the order is: "booked in" on the confirmation instead of an ETA, "Scheduled for Tomorrow at 7:00 pm" in My Orders, and a 🗓️ tag on both the owner dashboard and the Driver Hub.
+
+**Not built:** real service hours. The 08:00–22:00 window is a pair of constants in `lib/schedule.js`, not a configurable per-service schedule, and nothing stops an *ASAP* order at 3am — only scheduled ones are bounded. Proper open/closed handling is still on the list.
+
 ## Known limitations
 
 Things that are genuinely not solved yet, written down so they don't get rediscovered as surprises.

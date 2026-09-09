@@ -81,6 +81,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="lib/schedule.js"></script>
 <script>
 const ADMIN_PIN = "1234"; // change this before using this for anything real
 const SEEN_KEY = "warpx_admin_seen_ids";
@@ -327,7 +328,7 @@ function renderOrders(orders) {
         <div class="row-between" style="margin-top:8px;flex-wrap:wrap;gap:8px;align-items:center;">
           ${o.lat != null && o.lng != null ? `
             <a class="btn btn-outline btn-sm" href="https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}" target="_blank" rel="noopener">📍 Navigate to customer</a>
-            <span class="text-muted" style="font-size:.78rem;">${o.address_label ? "<b>" + esc(o.address_label) + "</b> · " : ""}${esc(o.address) || "No landmark note"} · ${o.lat.toFixed(5)}, ${o.lng.toFixed(5)}</span>
+            <span class="text-muted" style="font-size:.78rem;">${o.scheduled_for ? `<span class="sched-tag">🗓️ ${esc(formatSchedule(o.scheduled_for))}</span> · ` : ""}${o.address_label ? "<b>" + esc(o.address_label) + "</b> · " : ""}${esc(o.address) || "No landmark note"} · ${o.lat.toFixed(5)}, ${o.lng.toFixed(5)}</span>
           ` : `<span class="stale-tag" style="color:var(--warn);">⚠ No location on file for this order</span>`}
         </div>
         <div class="status-row">

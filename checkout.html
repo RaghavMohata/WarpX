@@ -106,6 +106,29 @@
       </div>
 
       <div class="card" style="padding:26px;margin-bottom:20px;">
+        <h3 style="margin-bottom:14px;">When do you want it?</h3>
+        <div class="segmented" id="timingSeg" style="margin-bottom:16px;">
+          <button type="button" class="active" data-val="now">⚡ As soon as possible</button>
+          <button type="button" data-val="later">🗓️ Schedule it</button>
+        </div>
+
+        <div id="schedulePanel" style="display:none;">
+          <div class="grid grid-2" style="gap:14px;">
+            <div class="field" style="margin-bottom:0;">
+              <label for="scheduleDate">Date</label>
+              <input type="date" id="scheduleDate" onchange="renderScheduleHint()">
+            </div>
+            <div class="field" style="margin-bottom:0;">
+              <label for="scheduleTime">Time</label>
+              <input type="time" id="scheduleTime" step="900" onchange="renderScheduleHint()">
+            </div>
+          </div>
+          <div id="scheduleHint"></div>
+        </div>
+        <p class="hint" id="nowHint">We'll start on it right away and get it to you in about <b id="nowEta">20-30</b> minutes.</p>
+      </div>
+
+      <div class="card" style="padding:26px;margin-bottom:20px;">
         <h3 style="margin-bottom:14px;">Payment method</h3>
         <div class="segmented" id="paymentSeg" style="margin-bottom:16px;">
           <button type="button" class="active" data-val="cod">💵 Cash on Delivery</button>
@@ -162,6 +185,7 @@
 </footer>
 
 <script src="lib/fee.js"></script>
+<script src="lib/schedule.js"></script>
 <script src="js/addresses.js"></script>
 <script src="js/cart.js"></script>
 <script src="js/location.js"></script>
@@ -174,6 +198,65 @@ function escapeAttr(str) {
 }
 
 let paymentMethod = "cod";
+/* ---- Scheduling ---------------------------------------------------------
+   "Now" stays the default and the fast path; scheduling is opt-in. The date
+   input is bounded to the window lib/schedule.js will accept, so an
+   impossible day can't even be picked. */
+let orderTiming = "now";
+
+document.getElementById("timingSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#timingSeg button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  orderTiming = btn.dataset.val;
+
+  const scheduling = orderTiming === "later";
+  document.getElementById("schedulePanel").style.display = scheduling ? "block" : "none";
+  document.getElementById("nowHint").style.display = scheduling ? "none" : "block";
+  if (scheduling) primeScheduleInputs();
+});
+
+function primeScheduleInputs() {
+  const dateEl = document.getElementById("scheduleDate");
+  const timeEl = document.getElementById("scheduleTime");
+  const bounds = scheduleDateBounds();
+  dateEl.min = bounds.min;
+  dateEl.max = bounds.max;
+
+  // Pre-fill with the next slot that would actually be accepted, so the
+  // common case is one tap rather than a date-picker expedition.
+  if (!dateEl.value || !timeEl.value) {
+    const soon = new Date(Date.now() + (MIN_LEAD_MINUTES + 15) * 60000);
+    // Round up to the next quarter hour — nobody schedules for 7:07.
+    soon.setMinutes(Math.ceil(soon.getMinutes() / 15) * 15, 0, 0);
+    const p2 = (n) => String(n).padStart(2, "0");
+    let day = soon;
+    let hh = soon.getHours();
+    if (hh >= SCHEDULE_CLOSE_HOUR) {
+      // Past closing: default to opening time tomorrow instead of a slot
+      // that would be rejected the moment they hit Place order.
+      day = new Date(soon.getFullYear(), soon.getMonth(), soon.getDate() + 1, SCHEDULE_OPEN_HOUR, 0);
+    } else if (hh < SCHEDULE_OPEN_HOUR) {
+      day = new Date(soon.getFullYear(), soon.getMonth(), soon.getDate(), SCHEDULE_OPEN_HOUR, 0);
+    }
+    dateEl.value = `${day.getFullYear()}-${p2(day.getMonth() + 1)}-${p2(day.getDate())}`;
+    timeEl.value = `${p2(day.getHours())}:${p2(day.getMinutes())}`;
+  }
+  renderScheduleHint();
+}
+
+function renderScheduleHint() {
+  const box = document.getElementById("scheduleHint");
+  const date = document.getElementById("scheduleDate").value;
+  const time = document.getElementById("scheduleTime").value;
+  const check = validateSchedule(date, time);
+  box.innerHTML = check.ok
+    ? `<div class="sched-ok">🗓️ Arriving <b>${escapeAttr(formatSchedule(check.value))}</b></div>`
+    : `<div class="sched-bad">${escapeAttr(check.error)}</div>`;
+  return check;
+}
+
 document.getElementById("paymentSeg").addEventListener("click", (e) => {
   const btn = e.target.closest("button");
   if (!btn) return;
@@ -382,6 +465,16 @@ async function submitOrder(btn) {
   }
 
   const selectedAddr = resolveSelectedAddress(addressBook);
+
+  // Re-check here rather than trusting the panel's last render: someone can
+  // switch to "Schedule it" and hit Place order without touching the inputs.
+  let schedule = null;
+  if (orderTiming === "later") {
+    const check = renderScheduleHint();
+    if (!check.ok) return showToast(check.error);
+    schedule = { scheduleDate: document.getElementById("scheduleDate").value, scheduleTime: document.getElementById("scheduleTime").value };
+  }
+
   const upiId = document.getElementById("upiId").value.trim();
   const paymentLabel = paymentMethod === "upi"
     ? `UPI${upiId ? " (" + upiId + ")" : ""} — demo, no real payment processed.`
@@ -396,6 +489,7 @@ async function submitOrder(btn) {
       body: JSON.stringify({
         userId: user.id, items: cart, paymentMethod, upiId: upiId || undefined,
         addressId: selectedAddr ? selectedAddr.id : undefined,
+        ...(schedule || {}),
       }),
     });
     const data = await res.json();
@@ -404,7 +498,7 @@ async function submitOrder(btn) {
       if (res.status === 401) setTimeout(() => { window.location.href = "login.html?redirect=checkout.html"; }, 1200);
       return;
     }
-    showOrderModal(data.orderNumber, `${data.etaMin} min`, true, paymentLabel, data.deliveryOtp);
+    showOrderModal(data.orderNumber, `${data.etaMin} min`, true, paymentLabel, data.deliveryOtp, data.scheduledFor);
     clearCart();
   } catch (err) {
     // No backend reachable — keep the demo usable with a local-only order.

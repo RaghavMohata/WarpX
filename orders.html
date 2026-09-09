@@ -93,6 +93,7 @@
 </footer>
 
 <script src="lib/fee.js"></script>
+<script src="lib/schedule.js"></script>
 <script src="js/addresses.js"></script>
 <script src="js/cart.js"></script>
 <script src="js/location.js"></script>
@@ -176,7 +177,9 @@ async function loadOrders() {
           <span>Total (incl. ₹${o.delivery_fee} delivery)</span>
           <span>₹${o.total}</span>
         </div>
-        <div class="text-muted" style="font-size:.8rem;margin-top:6px;">Estimated delivery: ${escapeAttr(o.eta_min)} min · ${o.payment_method === "upi" ? "📱 UPI" : "💵 Cash on Delivery"}</div>
+        <div class="text-muted" style="font-size:.8rem;margin-top:6px;">${o.scheduled_for
+          ? `Scheduled for <b>${escapeAttr(formatSchedule(o.scheduled_for))}</b>`
+          : `Estimated delivery: ${escapeAttr(o.eta_min)} min`} · ${o.payment_method === "upi" ? "📱 UPI" : "💵 Cash on Delivery"}</div>
         ${o.delivery_otp && o.status !== "delivered" ? `
           <div class="otp-box">
             <span class="otp-label">Your delivery code</span>

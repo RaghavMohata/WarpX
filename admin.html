@@ -686,6 +686,11 @@ function renderDrivers(drivers) {
           <div class="text-muted" style="font-size:.85rem;">${esc(d.vehicle_type)}${d.availability ? " · " + esc(d.availability) : ""}</div>
         </div>
       </div>
+      ${d.google_sub ? `
+        <div class="row-between" style="font-size:.85rem;margin-bottom:6px;gap:10px;flex-wrap:wrap;">
+          <span class="text-muted">🔗 Google account: <b>${esc(d.email || "linked")}</b></span>
+          <button class="btn btn-ghost btn-sm" onclick="unlinkDriverGoogle(${d.id})">Unlink</button>
+        </div>` : ""}
       ${d.area ? `<div style="font-size:.9rem;margin-bottom:4px;"><b>Area:</b> ${esc(d.area)}</div>` : ""}
       ${d.notes ? `<div class="text-muted" style="font-size:.85rem;margin-bottom:8px;">${esc(d.notes)}</div>` : ""}
       <div class="status-row">
@@ -695,6 +700,18 @@ function renderDrivers(drivers) {
       </div>
     </div>
   `).join("");
+}
+
+/* Linking a driver's Google account is keyed to the phone they applied with,
+   which is first-come — so the owner needs a way to undo a wrong link. */
+async function unlinkDriverGoogle(id) {
+  if (!confirm("Unlink this driver's Google account? They'll have to link it again next time they sign in.")) return;
+  try {
+    const res = await fetch(`/api/drivers/${id}/google`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Could not unlink that account.");
+    showToast("Google account unlinked.");
+    loadDrivers(true);
+  } catch (e) { showToast(e.message); }
 }
 
 async function setDriverStatus(id, status) {

@@ -52,6 +52,29 @@
 
       <!-- LEFT: account -->
       <div class="card" style="padding:32px;">
+        <div class="gsi-row" data-google-signin></div>
+        <div class="gsi-divider" id="gsiDivider" style="display:none;">or use your mobile number</div>
+
+        <!-- Shown only after Google verifies someone we've never seen before:
+             we still need a number to deliver to, and if that number already
+             has an account, its password to prove it's theirs. -->
+        <div class="gsi-step" id="gsiPhoneStep" style="display:none;">
+          <div class="gsi-who" id="gsiWho"></div>
+          <div class="field" style="margin-bottom:10px;">
+            <label for="gsiPhone">Your mobile number</label>
+            <input type="tel" id="gsiPhone" placeholder="10-digit mobile number">
+          </div>
+          <div class="field" id="gsiPasswordField" style="display:none;margin-bottom:10px;">
+            <label for="gsiPassword">Password for the existing account on that number</label>
+            <input type="password" id="gsiPassword" placeholder="Your WarpX password">
+            <p class="hint">That number already has a WarpX account. Enter its password once and we'll link the two.</p>
+          </div>
+          <div class="flex gap-8" style="flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary btn-sm" onclick="finishGoogleSignIn(this)">Continue</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="cancelGoogleSignIn()">Cancel</button>
+          </div>
+        </div>
+
         <div class="segmented" id="authSeg" style="margin-bottom:22px;">
           <button type="button" class="active" data-val="login">Login</button>
           <button type="button" data-val="signup">Sign up</button>
@@ -163,6 +186,7 @@
 
 <script src="lib/fee.js"></script>
 <script src="lib/schedule.js"></script>
+<script src="js/google-auth.js"></script>
 <script src="js/cart.js"></script>
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
@@ -383,6 +407,91 @@ async function completeLogin(btn) {
     if (user.phone) document.getElementById("authPhone").value = user.phone;
   }
 })();
+
+/* ---- Sign in with Google -------------------------------------------------
+   Google tells us who someone is; it can't tell us where they live. So a
+   first-time sign-in pauses here to collect a phone number, and — if that
+   number already belongs to a WarpX account — its password, because
+   otherwise anyone who knew the number could walk into that account. */
+let gsiTicket = null;
+
+// This page has no shared escaper, and a Google display name is attacker-
+// influenced text going into innerHTML, so it gets one of its own.
+function gsiEsc(str) {
+  const d = document.createElement("div");
+  d.textContent = str == null ? "" : String(str);
+  return d.innerHTML;
+}
+
+function showGooglePhoneStep(data) {
+  gsiTicket = data.ticket;
+  document.getElementById("gsiWho").innerHTML =
+    `<div><b>Signed in as ${gsiEsc(data.name || "your Google account")}</b>` +
+    `<small>${gsiEsc(data.email || "")}</small></div>`;
+  document.getElementById("gsiPhoneStep").style.display = "block";
+  document.getElementById("gsiPasswordField").style.display = "none";
+  document.getElementById("gsiPhone").focus();
+}
+
+function cancelGoogleSignIn() {
+  gsiTicket = null;
+  document.getElementById("gsiPhoneStep").style.display = "none";
+  document.getElementById("gsiPassword").value = "";
+}
+
+function landAfterGoogle(user) {
+  localStorage.setItem("warpx_user", JSON.stringify({ id: user.id, name: user.name, phone: user.phone }));
+  showToast(`Welcome${user.name ? ", " + user.name : ""}! Signed in with Google.`);
+  setTimeout(() => { window.location.href = getRedirectTarget(); }, 1000);
+}
+
+async function finishGoogleSignIn(btn) {
+  const phone = document.getElementById("gsiPhone").value.trim();
+  if (!phone) return showToast("We need a mobile number to deliver to.");
+  const password = document.getElementById("gsiPassword").value;
+
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "Checking...";
+  try {
+    const res = await fetch("/api/auth/google/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket: gsiTicket, phone, password: password || undefined }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      // The server asks for the account's password when that number is taken.
+      if (data.needsPassword) {
+        document.getElementById("gsiPasswordField").style.display = "block";
+        document.getElementById("gsiPassword").focus();
+      }
+      throw new Error(data.error || "That didn't work. Please try again.");
+    }
+    landAfterGoogle(data.user);
+  } catch (e) {
+    showToast(e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+initGoogleSignIn({
+  mode: "customer",
+  oneTap: true,
+  onResult: (data) => {
+    if (data.status === "signed-in") return landAfterGoogle(data.user);
+    if (data.status === "needs-phone") return showGooglePhoneStep(data);
+  },
+  onError: (msg) => showToast(msg),
+}).then(() => {
+  // Only label the alternative once there's actually a Google button above it.
+  const hasButton = document.querySelector("[data-google-signin]");
+  if (hasButton && hasButton.style.display !== "none" && hasButton.childElementCount > 0) {
+    document.getElementById("gsiDivider").style.display = "flex";
+  }
+});
 </script>
 <script src="/js/pwa.js"></script>
 </body>

@@ -644,3 +644,23 @@ footer a:hover{ color:#fff; }
 .payout-who small{ color:var(--muted); font-size:.78rem; }
 .payout-amt{ font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .payout-paid{ color:var(--muted); }
+
+/* ---- Google sign-in ------------------------------------------------------
+   The container is emptied and hidden when GOOGLE_CLIENT_ID isn't set, so
+   none of this shows a control that couldn't work. */
+.gsi-row{ display:flex; justify-content:center; margin-bottom:16px; min-height:44px; }
+.gsi-divider{
+  display:flex; align-items:center; gap:12px; margin:4px 0 20px;
+  color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.06em;
+}
+.gsi-divider::before, .gsi-divider::after{
+  content:""; flex:1; height:1px; background:var(--line);
+}
+.gsi-step{
+  background:var(--grad-warp-soft); border:1px solid rgba(124,58,237,.35);
+  border-radius:var(--radius-sm); padding:16px; margin-bottom:18px;
+}
+.gsi-who{ display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.gsi-who img{ width:36px; height:36px; border-radius:50%; }
+.gsi-who b{ display:block; font-size:.92rem; }
+.gsi-who small{ color:var(--muted); font-size:.8rem; word-break:break-all; }

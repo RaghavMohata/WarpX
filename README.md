@@ -403,6 +403,83 @@ The earnings panel could say you owed ₹4,158 with no record of what you'd actu
 - The amount written comes from the freshly computed row, never from the request — a payout can't be recorded for a figure that was never owed.
 - Drivers see their own paid/pending list in the hub.
 
+## Sign in with Google
+
+A **Sign in with Google** button sits above the phone + password form on
+`login.html` and on the Driver Hub, with Google's One Tap prompt offered on
+ordinary pages. Passwords still work exactly as before — this is an extra door,
+not a replacement.
+
+### Setting it up (you have to do this once)
+
+1. Google Cloud Console → **APIs & Services → Credentials → Create credentials →
+   OAuth client ID → Web application**.
+2. Under **Authorized JavaScript origins** add `http://localhost:3000`, and your real
+   `https://` domain if you have one. Origins must match exactly — Google will not
+   accept a bare LAN IP, so testing from a phone needs the same domain or tunnel the
+   PWA already needs.
+3. Run the server with the id:
+
+```bash
+GOOGLE_CLIENT_ID="xxxx.apps.googleusercontent.com" npm start
+```
+
+**With that variable unset, the button never renders and every page behaves exactly
+as it did before** — no dead control, no console errors. The same is true if Google's
+script can't load (blocked network, offline): the container hides itself and the
+phone + password form carries on.
+
+### The token is verified server-side
+
+The browser receives a signed ID token and posts it to `POST /api/auth/google`.
+Nothing in it is believed until `lib/google.js` has checked the **signature against
+Google's own keys**, the **audience** matches your client id, the **issuer** is
+Google, it hasn't **expired**, and the **email is verified**. That is the entire
+trust boundary, so verification is delegated to `google-auth-library` rather than
+hand-rolled — key rotation and `kid` selection are exactly where a silent mistake
+means anyone can log in as anyone. It is the only dependency here besides Express,
+and it earns its place.
+
+*(That library allows a documented 300-second clock-skew grace past expiry, which
+protects people whose phone clock is a few minutes out. Both sides of that boundary
+are pinned by tests so it can't surprise anyone later.)*
+
+### Google gives an email; WarpX needs a doorstep
+
+`users.phone` is `UNIQUE NOT NULL` and stays that way — SQLite can't drop a NOT NULL
+constraint without rebuilding the table, and rebuilding a live table would be the
+riskiest change in this feature. It's also unnecessary: you can't deliver to an email
+address, so a first-time Google sign-in ends with *"What's your mobile number?"* and
+the row is only created once that's in hand. Returning users are matched on
+`google_sub` and skip the step entirely.
+
+### Linking, and the takeover risk
+
+If the phone entered already belongs to an account, signing that person in would hand
+the account to **anyone who knows the number**. So:
+
+| Phone entered | What happens |
+| --- | --- |
+| Not in use | A new Google-backed account is created |
+| Belongs to a password account | That account's password is required, once, to link |
+| Already linked to a different Google account | Refused |
+
+The half-finished sign-in is held as a **short-lived server-side ticket keyed to the
+verified `sub`** (`lib/google.js`), so the phone step can't be replayed with someone
+else's email, and a spent ticket can't be reused.
+
+### Drivers
+
+Same button on the hub. Linking is by the phone they applied with — the same key the
+phone-only sign-in already used — and only an **approved** application can link;
+pending and rejected are refused as before.
+
+⚠️ **Honest caveat:** linking by phone is first-come, so someone who knew a driver's
+number could in principle claim it first. That is not worse than the current
+sign-in, where the phone alone *is* the whole credential permanently, and every
+sign-in after linking is properly authenticated. To keep it accountable the admin
+**Drivers** tab shows each linked Google address with an **Unlink** button.
+
 ## Known limitations
 
 Things that are genuinely not solved yet, written down so they don't get rediscovered as surprises.
@@ -410,7 +487,7 @@ Things that are genuinely not solved yet, written down so they don't get redisco
 - **Cafe items are matched by name.** Server-side pricing keys off the item name in `js/menu-data.js`, so renaming an item there without updating anything else makes existing carts holding the old name resolve to unpriced rather than mispriced. Safe, but worth knowing before a menu rewrite.
 - **`GET /api/admin/earnings` has no auth**, like every other endpoint here — anyone who can reach the server can read your revenue and driver costs. Same root cause as the admin PIN below.
 - **The admin PIN is in the page.** `ADMIN_PIN` is a constant in `admin.html`, visible in view-source, and the API behind it has no auth at all — `GET /api/orders` returns every customer's name, phone, address and coordinates to anyone who requests it. That's fine on localhost; it is a data leak the moment the site is reachable from the internet.
-- **Driver sign-in identifies rather than authenticates** — see the caveat under The Driver Hub.
+- **Driver sign-in by phone alone still identifies rather than authenticates.** Google sign-in fixes this for drivers who link an account; a driver who never links is exactly as before. Making Google mandatory for drivers would close it completely.
 - **Ownership checks trust a client-supplied `userId`.** The address endpoints scope every read and write to `user_id`, which stops accidents and casual tampering, but since there are no sessions or tokens a crafted request can still claim to be another user. Real sessions would fix this everywhere at once.
 - **No rate limiting** on any endpoint, so order spam and login brute-forcing are both open.
 - **No phone verification at sign-up**, so a wrong or fake number means an order nobody can chase.

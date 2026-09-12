@@ -6,6 +6,7 @@ const path = require("path");
 const db = require("./db");
 const { classifyZone } = require("./lib/zone");
 const { hashPassword, verifyPassword } = require("./lib/auth");
+const googleAuth = require("./lib/google");
 const { tierFor, payFor, payIfOneMore, BASE_PAY_PER_DELIVERY } = require("./lib/tier");
 const { feeFor } = require("./lib/fee");
 const { validateSchedule, isDueForDispatch, isOpenNow, nextOpeningSlot,
@@ -67,6 +68,156 @@ app.get("/api/hours", (req, res) => {
     closeHour: SCHEDULE_CLOSE_HOUR,
     opensAt: open ? null : nextOpeningSlot(),
   });
+});
+
+/* ---- Sign in with Google -------------------------------------------------
+   The browser gets a signed ID token from Google and posts it here. Nothing in
+   it is believed until lib/google.js has verified the signature against
+   Google's keys, so every field used below comes from a verified payload.
+
+   Google gives an email; WarpX has to deliver to a doorstep. So a first-time
+   sign-in doesn't finish here — it returns a ticket, and the phone number (and,
+   if that phone already has an account, its password) completes it. */
+
+app.get("/api/auth/google/config", (req, res) => {
+  // Lets the browser render the button without the client id being pasted into
+  // a dozen pages, and no-op cleanly when Google sign-in isn't configured.
+  res.json({ enabled: googleAuth.isEnabled(), clientId: googleAuth.CLIENT_ID });
+});
+
+function googleUserResponse(row) {
+  return { id: row.id, name: row.name, phone: row.phone, email: row.email, avatarUrl: row.avatar_url };
+}
+
+app.post("/api/auth/google", async (req, res) => {
+  if (!googleAuth.isEnabled()) return res.status(503).json({ error: "Google sign-in isn't set up on this server." });
+
+  let profile;
+  try {
+    profile = await googleAuth.verifyIdToken((req.body || {}).credential);
+  } catch (err) {
+    // Deliberately vague: the caller learns it failed, not how to get closer.
+    return res.status(401).json({ error: "That Google sign-in couldn't be verified. Please try again." });
+  }
+  googleAuth.purgeExpiredTickets();
+
+  // Returning customer — straight in.
+  const existing = db.prepare("SELECT * FROM users WHERE google_sub = ?").get(profile.sub);
+  if (existing) {
+    // Keep the profile fresh; people change their name and picture.
+    db.prepare("UPDATE users SET email = ?, avatar_url = ?, name = COALESCE(name, ?) WHERE id = ?")
+      .run(profile.email, profile.picture, profile.name, existing.id);
+    const row = db.prepare("SELECT * FROM users WHERE id = ?").get(existing.id);
+    return res.json({ status: "signed-in", user: googleUserResponse(row) });
+  }
+
+  // First time: we still need a phone number before an order can go anywhere.
+  const ticket = googleAuth.createTicket(profile);
+  const driver = db.prepare("SELECT * FROM drivers WHERE google_sub = ?").get(profile.sub);
+  res.json({
+    status: "needs-phone",
+    ticket,
+    email: profile.email,
+    name: profile.name,
+    driver: driver ? { id: driver.id, name: driver.name, phone: driver.phone } : null,
+  });
+});
+
+app.post("/api/auth/google/complete", (req, res) => {
+  const { ticket, phone, password, name } = req.body || {};
+  const profile = googleAuth.readTicket(ticket);
+  if (!profile) {
+    return res.status(410).json({ error: "That sign-in timed out. Tap the Google button again." });
+  }
+  const cleanPhone = String(phone || "").trim();
+  if (!cleanPhone) return res.status(400).json({ error: "We need a mobile number to deliver to." });
+
+  const existing = db.prepare("SELECT * FROM users WHERE phone = ?").get(cleanPhone);
+
+  if (existing) {
+    /* This phone already has an account. Linking it to whoever happens to be
+       signed into Google right now would hand that account to anyone who knows
+       the number, so the account's own password has to be produced first. */
+    if (existing.google_sub && existing.google_sub !== profile.sub) {
+      return res.status(409).json({ error: "That number is already linked to a different Google account." });
+    }
+    if (existing.password_hash) {
+      if (!password) {
+        return res.status(401).json({ error: "That number already has a WarpX account. Enter its password to link them.", needsPassword: true });
+      }
+      if (!verifyPassword(password, existing.password_hash, existing.password_salt)) {
+        return res.status(401).json({ error: "That password doesn't match the account for this number.", needsPassword: true });
+      }
+    }
+    db.prepare("UPDATE users SET google_sub = ?, email = ?, avatar_url = ?, name = COALESCE(name, ?) WHERE id = ?")
+      .run(profile.sub, profile.email, profile.picture, profile.name, existing.id);
+    googleAuth.consumeTicket(ticket);
+    const row = db.prepare("SELECT * FROM users WHERE id = ?").get(existing.id);
+    return res.json({ status: "linked", user: googleUserResponse(row) });
+  }
+
+  let info;
+  try {
+    info = db.prepare("INSERT INTO users (name, phone, email, google_sub, avatar_url) VALUES (?, ?, ?, ?, ?)")
+      .run(name || profile.name || null, cleanPhone, profile.email, profile.sub, profile.picture);
+  } catch (err) {
+    // The unique indexes are the real guard if two tabs race the same signup.
+    return res.status(409).json({ error: "That number or Google account is already registered." });
+  }
+  googleAuth.consumeTicket(ticket);
+  const row = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
+  res.json({ status: "created", user: googleUserResponse(row) });
+});
+
+/* Drivers sign in with the same button. Linking is by the phone they applied
+   with — the same key the phone-only login already uses — so this is no weaker
+   than today's sign-in, and every sign-in after the link is properly
+   authenticated rather than merely claimed. */
+app.post("/api/auth/google/driver", async (req, res) => {
+  if (!googleAuth.isEnabled()) return res.status(503).json({ error: "Google sign-in isn't set up on this server." });
+
+  let profile;
+  try {
+    profile = await googleAuth.verifyIdToken((req.body || {}).credential);
+  } catch (err) {
+    return res.status(401).json({ error: "That Google sign-in couldn't be verified. Please try again." });
+  }
+
+  const linked = db.prepare("SELECT * FROM drivers WHERE google_sub = ?").get(profile.sub);
+  if (linked) {
+    if (linked.status !== "approved") {
+      return res.status(403).json({ error: "Your application isn't approved yet. We'll call you once it is." });
+    }
+    return res.json({ status: "signed-in", driver: { id: linked.id, name: linked.name, phone: linked.phone, vehicleType: linked.vehicle_type } });
+  }
+  res.json({ status: "needs-phone", ticket: googleAuth.createTicket(profile), email: profile.email, name: profile.name });
+});
+
+app.post("/api/auth/google/driver/complete", (req, res) => {
+  const { ticket, phone } = req.body || {};
+  const profile = googleAuth.readTicket(ticket);
+  if (!profile) return res.status(410).json({ error: "That sign-in timed out. Tap the Google button again." });
+
+  const cleanPhone = String(phone || "").trim();
+  // Latest application wins, matching POST /api/drivers/login.
+  const driver = db.prepare("SELECT * FROM drivers WHERE phone = ? ORDER BY id DESC").get(cleanPhone);
+  if (!driver) return res.status(404).json({ error: "No application found for that number — apply on the Work With Us page first." });
+  if (driver.status === "pending") return res.status(403).json({ error: "Your application is still being reviewed. We'll call you once it's approved." });
+  if (driver.status === "rejected") return res.status(403).json({ error: "This application wasn't approved. Get in touch if you think that's a mistake." });
+  if (driver.google_sub && driver.google_sub !== profile.sub) {
+    return res.status(409).json({ error: "That number is already linked to a different Google account. Ask the owner to unlink it." });
+  }
+
+  db.prepare("UPDATE drivers SET google_sub = ?, email = ? WHERE id = ?").run(profile.sub, profile.email, driver.id);
+  googleAuth.consumeTicket(ticket);
+  res.json({ status: "linked", driver: { id: driver.id, name: driver.name, phone: driver.phone, vehicleType: driver.vehicle_type } });
+});
+
+// The owner's undo, for a link made to the wrong number.
+app.delete("/api/drivers/:id/google", (req, res) => {
+  const info = db.prepare("UPDATE drivers SET google_sub = NULL, email = NULL WHERE id = ?").run(Number(req.params.id));
+  if (info.changes === 0) return res.status(404).json({ error: "No such driver." });
+  res.json({ ok: true });
 });
 
 // Create a new account — phone + password, hashed with a per-user salt.

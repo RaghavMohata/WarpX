@@ -108,10 +108,25 @@
       <p class="text-muted mb-0" style="font-size:.88rem;">Sign in with the mobile number you applied with.</p>
     </div>
     <div class="field">
+      <div class="gsi-row" data-google-signin></div>
+      <div class="gsi-divider" id="gsiDivider" style="display:none;">or use your number</div>
+
+      <div class="gsi-step" id="gsiPhoneStep" style="display:none;">
+        <div class="gsi-who" id="gsiWho"></div>
+        <div class="field" style="margin-bottom:10px;">
+          <label for="gsiPhone">The number you applied with</label>
+          <input type="tel" id="gsiPhone" placeholder="10-digit mobile number">
+        </div>
+        <div class="flex gap-8" style="flex-wrap:wrap;">
+          <button type="button" class="btn btn-primary btn-sm" onclick="finishGoogleDriver(this)">Link my account</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="cancelGoogleDriver()">Cancel</button>
+        </div>
+      </div>
+
       <label for="drvPhone">Mobile number</label>
       <input type="tel" id="drvPhone" placeholder="10-digit mobile number">
     </div>
-    <button class="btn btn-primary btn-block" onclick="signIn(this)">Sign in</button>
+    <button class="btn btn-primary btn-block" id="drvSignInBtn" onclick="signIn(this)">Sign in</button>
     <p class="hint" style="margin-top:14px;text-align:center;">
       Not signed up yet? <a href="careers.html" style="color:var(--violet);font-weight:600;">Apply to deliver →</a>
     </p>
@@ -201,6 +216,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="lib/schedule.js"></script>
+<script src="js/google-auth.js"></script>
 <script>
 const DRIVER_KEY = "warpx_driver";
 
@@ -578,6 +594,66 @@ document.getElementById("drvPhone").addEventListener("keydown", (e) => {
 });
 
 if (getDriver()) openDashboard();
+
+/* ---- Sign in with Google -------------------------------------------------
+   Linking is keyed to the phone a driver applied with — the same key the
+   phone-only sign-in already uses, so this is no weaker than before. What it
+   buys is that every sign-in AFTER the link is authenticated rather than
+   merely claimed. The owner can unlink a wrong link from the Drivers tab. */
+let gsiTicket = null;
+
+function cancelGoogleDriver() {
+  gsiTicket = null;
+  document.getElementById("gsiPhoneStep").style.display = "none";
+}
+
+async function finishGoogleDriver(btn) {
+  const phone = document.getElementById("gsiPhone").value.trim();
+  if (!phone) return showToast("Enter the number you applied with.");
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "Linking...";
+  try {
+    const res = await fetch("/api/auth/google/driver/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket: gsiTicket, phone }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Could not link that account.");
+    localStorage.setItem(DRIVER_KEY, JSON.stringify(data.driver));
+    openDashboard();
+  } catch (e) {
+    showToast(e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+initGoogleSignIn({
+  mode: "driver",
+  oneTap: false, // a rider opening their hub is already where they meant to be
+  onResult: (data) => {
+    if (data.status === "signed-in") {
+      localStorage.setItem(DRIVER_KEY, JSON.stringify(data.driver));
+      return openDashboard();
+    }
+    if (data.status === "needs-phone") {
+      gsiTicket = data.ticket;
+      document.getElementById("gsiWho").innerHTML =
+        `<div><b>Signed in as ${esc(data.name || "your Google account")}</b><small>${esc(data.email || "")}</small></div>`;
+      document.getElementById("gsiPhoneStep").style.display = "block";
+      document.getElementById("gsiPhone").focus();
+    }
+  },
+  onError: (msg) => showToast(msg),
+}).then(() => {
+  const host = document.querySelector("[data-google-signin]");
+  if (host && host.style.display !== "none" && host.childElementCount > 0) {
+    document.getElementById("gsiDivider").style.display = "flex";
+  }
+});
 </script>
 <script src="/js/pwa.js"></script>
 </body>

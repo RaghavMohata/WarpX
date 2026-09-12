@@ -114,8 +114,11 @@ db.exec(`
 `);
 
 // Safe migrations for a warpx.db created before these columns existed.
-for (const col of ["password_hash TEXT", "password_salt TEXT"]) {
+for (const col of ["password_hash TEXT", "password_salt TEXT", "email TEXT", "google_sub TEXT", "avatar_url TEXT"]) {
   try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch (e) {}
+}
+for (const col of ["google_sub TEXT", "email TEXT"]) {
+  try { db.exec(`ALTER TABLE drivers ADD COLUMN ${col}`); } catch (e) {}
 }
 for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)", "delivery_otp TEXT", "address_label TEXT", "scheduled_for TEXT", "delivered_at TEXT"]) {
   try { db.exec(`ALTER TABLE orders ADD COLUMN ${col}`); } catch (e) {}
@@ -127,5 +130,10 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_orders_driver_id ON orders(driver_
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_orders_scheduled_for ON orders(scheduled_for)"); } catch (e) {}
 // The daily tier count filters on this every time a driver page refreshes.
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_orders_delivered_at ON orders(delivered_at)"); } catch (e) {}
+
+/* One Google account maps to at most one customer and one driver. Partial, so
+   the many rows with no Google account linked don't all collide on NULL. */
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL"); } catch (e) {}
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_drivers_google_sub ON drivers(google_sub) WHERE google_sub IS NOT NULL"); } catch (e) {}
 
 module.exports = db;

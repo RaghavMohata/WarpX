@@ -14,6 +14,10 @@ const { validateSchedule, isDueForDispatch, isOpenNow, nextOpeningSlot,
 const { PICASSO_MENU } = require("./js/menu-data");
 
 const app = express();
+// Correct behind a reverse proxy (Caddy/nginx) so req.ip and req.protocol
+// reflect the real visitor rather than the proxy itself — matters the day
+// this gets IP-based rate limiting or logging, neither of which exist yet.
+app.set("trust proxy", true);
 app.use(express.json());
 app.use(express.static(__dirname));
 

@@ -496,6 +496,58 @@ sign-in, where the phone alone *is* the whole credential permanently, and every
 sign-in after linking is properly authenticated. To keep it accountable the admin
 **Drivers** tab shows each linked Google address with an **Unlink** button.
 
+## HTTPS with a reverse proxy (no third-party tunnel)
+
+Running WarpX on your own Mac with port forwarding gets you a real public URL, but
+plain `http://` breaks two things: the PWA can't install (service workers refuse to
+register outside `https://`/`localhost`) and Google Sign-In expects a secure origin.
+**Caddy** solves both — one binary, no account, no config beyond your domain name,
+and it gets and renews a free Let's Encrypt certificate on its own forever.
+
+This assumes port forwarding is already working (see the tunnel section above) and
+your domain's DNS points at your home's public IP.
+
+1. **Forward two more ports on your router**, alongside the `3000` you already set up:
+   `80` and `443`, both TCP, both pointed at your Mac's reserved local IP. Caddy needs
+   `80` to prove domain ownership to Let's Encrypt and `443` to serve HTTPS.
+2. **Install Caddy:**
+   ```bash
+   brew install caddy
+   ```
+3. **Edit the `Caddyfile`** in this repo — replace `yourdomain.com` with your real
+   domain (the one you pointed at your public IP on Hostinger).
+4. **Run it as a background service**, so it starts on login and keeps running
+   without you having to launch it each time:
+   ```bash
+   sudo brew services start caddy
+   ```
+   The first request to your domain takes a few extra seconds while Caddy fetches
+   the certificate — that's normal, and it only happens once.
+5. **Start WarpX as usual** — `npm start` or `start.command`. Nothing about how you
+   run the Node app changes; Caddy sits in front of it on ports 80/443 and forwards
+   everything to `localhost:3000`.
+6. **Test from your phone on mobile data** (not home Wi-Fi): `https://yourdomain.com`
+   should load with a padlock, no warnings.
+7. **Add the new origin to Google Cloud Console** — Credentials → your OAuth client
+   → Authorized JavaScript origins → add `https://yourdomain.com` (keep
+   `http://localhost:3000` too, for local testing). Google Sign-In won't work on the
+   new domain until this is added.
+
+Express is told it's behind a proxy (`app.set("trust proxy", true)` in `server.js`)
+so `req.ip` and `req.protocol` reflect the real visitor rather than Caddy itself —
+not load-bearing today since nothing reads either yet, but correct the moment
+rate limiting or IP logging is added.
+
+**To stop it:** `sudo brew services stop caddy`. Node keeps running independently;
+your domain just stops resolving to anything until Caddy is started again.
+
+⚠️ Going from a temporary tunnel link to a permanent domain changes the risk here.
+A tunnel URL is usually short-lived and only shared with people you gave it to; a
+domain sits there indefinitely for anyone to find. The admin PIN being visible in
+`admin.html`'s source and the total absence of API auth (see Known limitations,
+just below) matter far more once the site has a permanent public address — don't
+treat this step as "done," treat the items below as the next ones to close.
+
 ## Known limitations
 
 Things that are genuinely not solved yet, written down so they don't get rediscovered as surprises.
@@ -507,7 +559,7 @@ Things that are genuinely not solved yet, written down so they don't get redisco
 - **Ownership checks trust a client-supplied `userId`.** The address endpoints scope every read and write to `user_id`, which stops accidents and casual tampering, but since there are no sessions or tokens a crafted request can still claim to be another user. Real sessions would fix this everywhere at once.
 - **No rate limiting** on any endpoint, so order spam and login brute-forcing are both open.
 - **No phone verification at sign-up**, so a wrong or fake number means an order nobody can chase.
-- **The PWA needs HTTPS off localhost.** Service workers only run on `https://` or `localhost`, so installing from a phone means a real domain or a tunnel — over plain `http://` on a LAN IP the site still works, but it won't install or cache.
+- **The PWA needs HTTPS off localhost.** Service workers only run on `https://` or `localhost` — over plain `http://` on a LAN IP or a bare port-forward the site still works, it just won't install or cache. See "HTTPS with a reverse proxy" above for the fix.
 - **`warpx.db` has no backup.** It's a single file; losing it loses every order, customer and driver.
 
 ## Notes

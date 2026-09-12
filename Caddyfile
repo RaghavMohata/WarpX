@@ -1,0 +1,21 @@
+# WarpX reverse proxy — free, automatic HTTPS via Caddy.
+#
+# Caddy sits in front of the Node server: it terminates HTTPS (Let's Encrypt
+# gets and renews the certificate on its own, forever, with zero manual
+# steps) and forwards every request to WarpX running on localhost:3000.
+#
+# Setup: replace yourdomain.com below with your real domain, then see the
+# "HTTPS with a reverse proxy" section in README.md for the full walkthrough
+# (router port forwarding, DNS, installing Caddy, running it as a service).
+
+yourdomain.com {
+	reverse_proxy localhost:3000
+}
+
+# If you also want it reachable at www.yourdomain.com, uncomment this block
+# instead of the one above (Caddy needs each hostname listed explicitly —
+# it won't infer www from the bare domain or vice versa):
+#
+# yourdomain.com, www.yourdomain.com {
+# 	reverse_proxy localhost:3000
+# }

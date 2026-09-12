@@ -504,18 +504,26 @@ register outside `https://`/`localhost`) and Google Sign-In expects a secure ori
 **Caddy** solves both — one binary, no account, no config beyond your domain name,
 and it gets and renews a free Let's Encrypt certificate on its own forever.
 
-This assumes port forwarding is already working (see the tunnel section above) and
-your domain's DNS points at your home's public IP.
+This assumes port forwarding is already working (see the tunnel section above).
+The `Caddyfile` in this repo is already set up for **warpx.online** — if you're
+using a different domain, edit it before starting.
 
-1. **Forward two more ports on your router**, alongside the `3000` you already set up:
+0. **If GitHub Pages was ever enabled for this domain, turn it off first.**
+   A domain's DNS can only point one place — GitHub Pages' servers, or your home's
+   public IP — never both. In the repo's **Settings → Pages**, clear the custom
+   domain field (or set the source to "None"), and make sure no `CNAME` file exists
+   at the repo root. Skip this step if you never set up Pages for this domain.
+1. **Point the domain's DNS at your home IP.** In Hostinger's DNS panel, the domain's
+   **A record** must resolve to your current public IP (`curl ifconfig.me` on your
+   Mac gets it) — not to GitHub Pages' IPs. This is also the record you'll need to
+   update by hand whenever your home IP changes (see the tunnel section above).
+2. **Forward two more ports on your router**, alongside the `3000` you already set up:
    `80` and `443`, both TCP, both pointed at your Mac's reserved local IP. Caddy needs
    `80` to prove domain ownership to Let's Encrypt and `443` to serve HTTPS.
-2. **Install Caddy:**
+3. **Install Caddy:**
    ```bash
    brew install caddy
    ```
-3. **Edit the `Caddyfile`** in this repo — replace `yourdomain.com` with your real
-   domain (the one you pointed at your public IP on Hostinger).
 4. **Run it as a background service**, so it starts on login and keeps running
    without you having to launch it each time:
    ```bash
@@ -526,10 +534,10 @@ your domain's DNS points at your home's public IP.
 5. **Start WarpX as usual** — `npm start` or `start.command`. Nothing about how you
    run the Node app changes; Caddy sits in front of it on ports 80/443 and forwards
    everything to `localhost:3000`.
-6. **Test from your phone on mobile data** (not home Wi-Fi): `https://yourdomain.com`
+6. **Test from your phone on mobile data** (not home Wi-Fi): `https://warpx.online`
    should load with a padlock, no warnings.
 7. **Add the new origin to Google Cloud Console** — Credentials → your OAuth client
-   → Authorized JavaScript origins → add `https://yourdomain.com` (keep
+   → Authorized JavaScript origins → add `https://warpx.online` (keep
    `http://localhost:3000` too, for local testing). Google Sign-In won't work on the
    new domain until this is added.
 

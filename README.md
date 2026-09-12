@@ -418,13 +418,29 @@ not a replacement.
    `https://` domain if you have one. Origins must match exactly — Google will not
    accept a bare LAN IP, so testing from a phone needs the same domain or tunnel the
    PWA already needs.
-3. Run the server with the id:
+3. Paste the **Client ID** into `config.js`:
 
-```bash
-GOOGLE_CLIENT_ID="xxxx.apps.googleusercontent.com" npm start
+```js
+GOOGLE_CLIENT_ID: "xxxx.apps.googleusercontent.com",
 ```
 
-**With that variable unset, the button never renders and every page behaves exactly
+That's the only file to edit. The value is read in-process, so `npm start`,
+`start.command`, `start.sh` and `start.bat` all pick it up with nothing extra typed.
+An environment variable still wins if you set one, which is handy for pointing a
+single run at a second Google project or another domain:
+
+```bash
+GOOGLE_CLIENT_ID="other-id.apps.googleusercontent.com" npm start
+```
+
+🔒 **Only the Client ID goes in `config.js`.** The Console also shows a **Client
+Secret** — WarpX never uses it (the button verifies a signed ID token rather than
+exchanging an authorization code), and it must not be committed, pasted into a chat,
+or stored anywhere in this repo. If one is ever exposed, reset it in the Console:
+**Credentials → your OAuth client → Reset secret**. A Client ID is different: Google
+renders it into every page for every visitor, so it is public by design.
+
+**With `config.js` left empty, the button never renders and every page behaves exactly
 as it did before** — no dead control, no console errors. The same is true if Google's
 script can't load (blocked network, offline): the container hides itself and the
 phone + password form carries on.

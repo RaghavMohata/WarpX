@@ -132,6 +132,43 @@ To use it: open `admin.html`, enter the PIN (**`1234`** by default), and just le
 
 None of these need guesswork to fix — they need real accounts, a real push/SMS provider, and (eventually) a driver-facing app — each a genuine infrastructure decision rather than something to fake locally. Happy to build any of them next; they're called out here instead of quietly pretended-away.
 
+*(The "single point of failure" problem above — nobody notified unless a browser tab is open — has a lightweight fix now: see "n8n order automation" below.)*
+
+## n8n order automation (push notifications to the owner + drivers)
+
+`admin.html`'s alerts only fire while that tab is open in a browser. [n8n](https://n8n.io) — a separate, self-hosted workflow tool, run on the same Mac as WarpX — lets an order also reach a real phone via Telegram or WhatsApp, whether or not anyone has the dashboard open.
+
+**How it works:** the moment an order commits to the database (`POST /api/orders` in `server.js`), WarpX makes one outbound `fetch()` to whatever URL is set as `N8N_WEBHOOK_URL` — n8n's own Webhook-trigger node. From there the n8n workflow (built visually in n8n's UI, not in this repo) branches on the order's `services` field and messages Picasso Cafe's owner for food orders, and a delivery-partner chat for everything else. When a partner replies "accepted" or "delivered", that workflow calls back into the *existing* `PATCH /api/orders/:id/status` and `PATCH /api/orders/:id/pickup` routes — no new WarpX endpoint needed for that direction.
+
+**Turning it on:**
+1. Run n8n locally — `npx n8n` or Docker, same idea as running Caddy as a background service (see the reverse-proxy section above).
+2. Build a workflow starting with a **Webhook** node; copy its test/production URL (e.g. `http://localhost:5678/webhook/new-order`).
+3. Paste that URL into `N8N_WEBHOOK_URL` in `config.js` (or set the `N8N_WEBHOOK_URL` environment variable, which wins over the file — handy for pointing at a second n8n instance without editing anything).
+4. Restart WarpX. Leave `N8N_WEBHOOK_URL` empty and nothing changes — no outbound call is ever made, exactly like the site behaves today.
+
+**What the webhook payload looks like:**
+```json
+{
+  "orderId": 827,
+  "orderNumber": "WPX539848",
+  "services": ["food"],
+  "items": [{ "name": "Bottle 10", "qty": 2, "price": 25 }],
+  "subtotal": 50,
+  "deliveryFee": 40,
+  "total": 90,
+  "paymentMethod": "cod",
+  "address": "23.268,77.415 area, Bhopal",
+  "addressLabel": "Home",
+  "etaMin": "20-30",
+  "scheduledFor": null
+}
+```
+The customer's delivery OTP is deliberately never included — the same rule `withoutOtp()` enforces everywhere else in this codebase (see "Delivery codes" above) applies here too: it exists to prove a real handover happened, so it must never travel anywhere but the customer's own screen.
+
+**On reachability, tying back to the reverse-proxy section above:** this call is *outbound* — WarpX (or n8n) reaching out to Telegram/WhatsApp's own servers — so it works over a normal home connection with no port forwarding, and isn't affected by CGNAT the way accepting inbound connections is. The one place that matters is getting a *reply* from a partner: rather than a Telegram webhook (which would need a public HTTPS endpoint pointed at this Mac), have the n8n workflow poll Telegram's `getUpdates` on a Schedule-trigger node every few seconds instead. That keeps the entire loop outbound-only in both directions.
+
+**Not built here on purpose:** the actual n8n workflow (which nodes, which chat IDs, message wording) lives inside n8n itself, not in this repo — it's built and edited visually in n8n's own UI, the same way `admin.html`'s PIN and Caddy's domain are configuration rather than code.
+
 ## Getting precise coordinates for a placed order
 
 Every order card in `admin.html` now has a **"📍 Navigate to customer"** button, plus the raw coordinates printed next to it as text. Clicking it opens Google Maps with turn-by-turn directions straight to that customer's exact location (`https://www.google.com/maps/dir/?api=1&destination=lat,lng`) — on a phone this opens the Google Maps app directly if it's installed. This needs **no Google Maps API key, no billing account, no setup** — it's a plain URL format Google Maps supports for free, so it works immediately with what's already built.

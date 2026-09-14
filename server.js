@@ -12,6 +12,7 @@ const { feeFor } = require("./lib/fee");
 const { validateSchedule, isDueForDispatch, isOpenNow, nextOpeningSlot,
         SCHEDULE_OPEN_HOUR, SCHEDULE_CLOSE_HOUR } = require("./lib/schedule");
 const { PICASSO_MENU } = require("./js/menu-data");
+const config = require("./config");
 
 const app = express();
 // Correct behind a reverse proxy (Caddy/nginx) so req.ip and req.protocol
@@ -36,6 +37,27 @@ function publicUser(row) {
 function withoutOtp(order) {
   const { delivery_otp, ...rest } = order;
   return rest;
+}
+
+/* Tells n8n an order just came in, so it can message the restaurant owner
+   and delivery partners (Telegram/WhatsApp) even when nobody has admin.html
+   or driver.html open to see the in-browser alert. Fire-and-forget: n8n
+   being down or unconfigured must never slow down or fail an order that
+   has already committed to the database. n8n writes status changes back
+   through the existing PATCH /api/orders/:id/status and .../pickup routes
+   below, so no separate callback endpoint is needed here. Never include the
+   delivery OTP — see withoutOtp() above for why. */
+function notifyN8n(order) {
+  // Env var wins, same as GOOGLE_CLIENT_ID — lets a one-off run point at a
+  // different n8n instance without editing config.js.
+  const url = process.env.N8N_WEBHOOK_URL || config.N8N_WEBHOOK_URL;
+  if (!url) return;
+  fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(order),
+    signal: AbortSignal.timeout(5000),
+  }).catch(() => {});
 }
 
 /* ---- Pricing is the server's business, not the browser's ------------------
@@ -461,6 +483,21 @@ app.post("/api/orders", (req, res) => {
     db.exec("ROLLBACK");
     return res.status(400).json({ error: "Could not place order: " + err.message });
   }
+
+  notifyN8n({
+    orderId,
+    orderNumber,
+    services: [...new Set(priced.map((it) => it.service))],
+    items: priced.map((it) => ({ name: it.name, qty: it.qty || 1, price: it.price })),
+    subtotal,
+    deliveryFee,
+    total,
+    paymentMethod: method,
+    address: loc ? loc.address : null,
+    addressLabel: chosenAddress ? chosenAddress.label : null,
+    etaMin,
+    scheduledFor,
+  });
 
   res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed", deliveryOtp, addressLabel: chosenAddress ? chosenAddress.label : null, scheduledFor });
 });

@@ -14,4 +14,12 @@ module.exports = {
      Leave it empty and the button never renders — the site behaves exactly as
      it does without Google sign-in. */
   GOOGLE_CLIENT_ID: "271784652438-b3dihv1ltakiqilr3lago1n1brvrrfrh.apps.googleusercontent.com",
+
+  /* Where n8n's "new order" webhook trigger is listening, e.g.
+     "http://localhost:5678/webhook/new-order". Leave it empty and WarpX
+     never calls out anywhere — placing an order behaves exactly as it does
+     today. n8n itself, and the restaurant-owner / delivery-partner
+     notifications it sends, are documented under "n8n order automation" in
+     README.md. */
+  N8N_WEBHOOK_URL: "",
 };

@@ -23,6 +23,14 @@ module.exports = {
      README.md. */
   N8N_WEBHOOK_URL: "",
 
+  /* Where n8n's "order status changed" webhook trigger is listening, e.g.
+     "http://localhost:5678/webhook/order-status". Fired every time an order
+     moves to preparing / out for delivery / delivered, so n8n can message
+     the *customer* directly instead of them refreshing orders.html. Separate
+     from N8N_WEBHOOK_URL above so the two can run as separate, simpler n8n
+     workflows. Leave it empty and nothing changes. */
+  N8N_STATUS_WEBHOOK_URL: "",
+
   /* Where a driver collects a food order from. Attached to an order (in the
      driver hub and the n8n webhook) only when it includes a food item —
      other services have no single fixed pickup point yet. Never sent to any

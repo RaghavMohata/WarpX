@@ -172,6 +172,30 @@ The customer's delivery OTP is deliberately never included — the same rule `wi
 
 **Not built here on purpose:** the actual n8n workflow (which nodes, which chat IDs, message wording) lives inside n8n itself, not in this repo — it's built and edited visually in n8n's own UI, the same way `admin.html`'s PIN and Caddy's domain are configuration rather than code.
 
+### Customer-side status pings
+
+The two webhooks above tell the *owner* and *drivers* about an order. This one closes the last gap: it tells the **customer**, so they don't have to keep `orders.html` open and refreshing to know their order moved.
+
+Every place an order's status actually changes — `PATCH /api/orders/:id/status` (owner dashboard), `.../pickup` (driver collects it), `.../deliver` (driver completes it) — now calls `notifyN8nStatus()` in `server.js`, which fires a `POST` to `N8N_STATUS_WEBHOOK_URL` (a second, separate config value from `N8N_WEBHOOK_URL`, so each stays a simple one-purpose n8n workflow):
+
+```json
+{
+  "orderId": 907,
+  "orderNumber": "WPX918551",
+  "status": "preparing",
+  "customerName": "Nilesh",
+  "customerPhone": "9876543210"
+}
+```
+
+Fires once per real transition — the owner re-clicking a status the order is already at, or the driver's dashboard re-rendering, doesn't send it twice. `status` is always one of `placed`/`preparing`/`out for delivery`/`delivered`, the same four steps `orders.html`'s tracker already shows.
+
+**The part this doesn't solve for you: actually reaching an arbitrary customer's phone.** The owner/driver notifications above work because *you* set up that Telegram chat — you already have its chat ID. A customer hasn't talked to your bot, so Telegram (and WhatsApp's real API) won't just let you message them out of nowhere. Two realistic ways to close that gap in the n8n workflow:
+- **Telegram, with a one-time opt-in.** Show customers a `https://t.me/YourBot?start=<phone>` link (e.g. on the order-confirmation screen) once. When they tap it and message the bot, n8n learns their chat ID and can map it to their phone number for every future order. Free, but needs that one click from each customer.
+- **A paid SMS/WhatsApp API** (Twilio, MSG91, or Meta's WhatsApp Cloud API, which has a free monthly tier). No opt-in needed since it's a real phone number, but it's the one place in this whole n8n setup that isn't free — a genuine cost/effort tradeoff, not a code problem to solve here.
+
+Either way, `customerPhone` is already in the payload — which channel turns it into an actual message a customer receives is an n8n workflow decision, same as the owner/driver Telegram routing above.
+
 ## Getting precise coordinates for a placed order
 
 Every order card in `admin.html` now has a **"📍 Navigate to customer"** button, plus the raw coordinates printed next to it as text. Clicking it opens Google Maps with turn-by-turn directions straight to that customer's exact location (`https://www.google.com/maps/dir/?api=1&destination=lat,lng`) — on a phone this opens the Google Maps app directly if it's installed. This needs **no Google Maps API key, no billing account, no setup** — it's a plain URL format Google Maps supports for free, so it works immediately with what's already built.

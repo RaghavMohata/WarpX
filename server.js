@@ -47,25 +47,49 @@ function pickupAddressFor(items) {
   return items.some((it) => it.service === "food") ? config.PICASSO_ADDRESS : null;
 }
 
-/* Tells n8n an order just came in, so it can message the restaurant owner
-   and delivery partners (Telegram/WhatsApp) even when nobody has admin.html
-   or driver.html open to see the in-browser alert. Fire-and-forget: n8n
-   being down or unconfigured must never slow down or fail an order that
-   has already committed to the database. n8n writes status changes back
-   through the existing PATCH /api/orders/:id/status and .../pickup routes
-   below, so no separate callback endpoint is needed here. Never include the
-   delivery OTP — see withoutOtp() above for why. */
-function notifyN8n(order) {
-  // Env var wins, same as GOOGLE_CLIENT_ID — lets a one-off run point at a
-  // different n8n instance without editing config.js.
-  const url = process.env.N8N_WEBHOOK_URL || config.N8N_WEBHOOK_URL;
+// Fire-and-forget POST to an n8n webhook. n8n being down or unconfigured must
+// never slow down or fail whatever WarpX request triggered the notification —
+// it has already committed to the database by the time this is called.
+function postToN8n(url, body) {
   if (!url) return;
   fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(order),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(5000),
   }).catch(() => {});
+}
+
+/* Tells n8n an order just came in, so it can message the restaurant owner
+   and delivery partners (Telegram/WhatsApp) even when nobody has admin.html
+   or driver.html open to see the in-browser alert. n8n writes status changes
+   back through the existing PATCH /api/orders/:id/status and .../pickup
+   routes below, so no separate callback endpoint is needed here. Never
+   include the delivery OTP — see withoutOtp() above for why. */
+function notifyN8n(order) {
+  // Env var wins, same as GOOGLE_CLIENT_ID — lets a one-off run point at a
+  // different n8n instance without editing config.js.
+  postToN8n(process.env.N8N_WEBHOOK_URL || config.N8N_WEBHOOK_URL, order);
+}
+
+/* Tells n8n an order's status just changed, so it can message the *customer*
+   directly (Telegram/WhatsApp/SMS, whatever the workflow is wired to) instead
+   of them having to keep orders.html open and refreshing. A separate webhook
+   from notifyN8n() above, so each stays a simple, single-purpose n8n
+   workflow. Looks up the customer fresh each time rather than trusting a
+   caller to already have it, since two of the three callers only have the
+   order row, not the user's contact details. */
+function notifyN8nStatus(order, status) {
+  const url = process.env.N8N_STATUS_WEBHOOK_URL || config.N8N_STATUS_WEBHOOK_URL;
+  if (!url) return;
+  const customer = db.prepare("SELECT name, phone FROM users WHERE id = ?").get(order.user_id);
+  postToN8n(url, {
+    orderId: order.id,
+    orderNumber: order.order_number,
+    status,
+    customerName: customer ? customer.name : null,
+    customerPhone: customer ? customer.phone : null,
+  });
 }
 
 /* ---- Pricing is the server's business, not the browser's ------------------
@@ -571,7 +595,7 @@ app.patch("/api/orders/:id/status", (req, res) => {
   if (!ORDER_STATUSES.includes(status)) {
     return res.status(400).json({ error: `Unknown status. Expected one of: ${ORDER_STATUSES.join(", ")}.` });
   }
-  const existing = db.prepare("SELECT id FROM orders WHERE id = ?").get(id);
+  const existing = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
   if (!existing) return res.status(404).json({ error: "No such order." });
 
   // Reaching 'delivered' through here would skip the handover code entirely,
@@ -581,6 +605,9 @@ app.patch("/api/orders/:id/status", (req, res) => {
       ? "UPDATE orders SET status = ?, delivered_at = COALESCE(delivered_at, datetime('now')) WHERE id = ?"
       : "UPDATE orders SET status = ? WHERE id = ?"
   ).run(status, id);
+  // Skip the ping if the owner just re-clicked the status it's already at —
+  // the customer doesn't need to hear "your order is preparing" twice.
+  if (existing.status !== status) notifyN8nStatus(existing, status);
   res.json({ id, status });
 });
 
@@ -594,6 +621,7 @@ app.patch("/api/orders/:id/pickup", (req, res) => {
   if (!order) return res.status(403).json({ error: "That order isn't assigned to you." });
   if (order.status === "delivered") return res.status(409).json({ error: "That order is already delivered." });
   db.prepare("UPDATE orders SET status = 'out for delivery' WHERE id = ? AND driver_id = ?").run(id, Number(driverId));
+  if (order.status !== "out for delivery") notifyN8nStatus(order, "out for delivery");
   res.json({ id, status: "out for delivery" });
 });
 
@@ -915,6 +943,7 @@ app.patch("/api/orders/:id/deliver", (req, res) => {
   if (info.changes === 0) {
     return res.status(403).json({ error: "That order isn't assigned to you." });
   }
+  notifyN8nStatus(order, "delivered");
   const stats = driverDayStats(driverId);
   res.json({ id, status: "delivered", progress: tierFor(stats.today) });
 });

@@ -11,8 +11,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="WarpX">
 <meta name="mobile-web-app-capable" content="yes">
-<title>Grocery | WarpX</title>
-<meta name="description" content="Order groceries by category — vegetables, grains, dairy, daily needs and more. Don't see it? Just type it in.">
+<title>Weekly Grocery List | WarpX</title>
+<meta name="description" content="Submit your weekly grocery and vegetable list once — it's all delivered together on one day, routed straight across town instead of piecemeal.">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -41,23 +41,24 @@
 
 <header class="page-hero ph-grocery">
   <div class="container">
-    <span class="badge badge-lime" style="margin-bottom:12px;">🥬 Grocery · Pickup & Delivery</span>
-    <h1 style="color:#fff;">Grocery</h1>
-    <p>We don't run a fixed catalog — pick a category, tap a common item or type exactly what you need, and we'll get it from the nearest store.</p>
+    <span class="badge badge-lime" style="margin-bottom:12px;">🗓️ Weekly Grocery Round</span>
+    <h1 style="color:#fff;">This week's list</h1>
+    <p>Submit your grocery/vegetable list once — everyone's orders are delivered together on one day, sequenced into a straight route instead of scattered pickups.</p>
   </div>
 </header>
 
 <section class="section">
   <div class="container">
-    <div class="note-box" style="margin-bottom:32px;">
-      <div style="font-size:1.3rem;">✍️</div>
+    <div id="weeklyBanner" class="note-box" style="display:none;margin-bottom:24px;"></div>
+    <div id="weeklyClosedNotice" class="note-box" style="display:none;margin-bottom:24px;">
+      <div style="font-size:1.3rem;">😴</div>
       <div>
-        <b>How grocery ordering works on WarpX</b>
-        <p>Tap a quick-add chip for common items, or use the "add your own" box in each category to write exactly what you want — brand, quantity, anything. Prices are confirmed by your delivery partner at the store.</p>
+        <b>Nothing open right now</b>
+        <p>The weekly list isn't taking orders at the moment — check back once it opens again, or use <a href="grocery.html">regular grocery ordering</a> in the meantime.</p>
       </div>
     </div>
 
-    <div id="groceryCategories"></div>
+    <div id="weeklyCategories" style="display:none;"></div>
   </div>
 </section>
 
@@ -104,6 +105,11 @@
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
 <script>
+// A customer's weekly list lives in its own cart, entirely separate from
+// whatever they've added on grocery.html — set before anything else touches
+// the cart, so the drawer/badge injected by main.js render the right one.
+setCartKey("warpx_weekly_cart");
+
 const GROCERY_CATEGORIES = [
   { id: "veg", icon: "🥦", name: "Vegetables & Fruits", chips: ["Onion 1kg", "Tomato 1kg", "Potato 1kg", "Banana 1 dozen", "Apple 1kg", "Green Chilli 250g", "Coriander bunch"] },
   { id: "grains", icon: "🌾", name: "Grains, Atta & Dals", chips: ["Wheat Atta 5kg", "Basmati Rice 1kg", "Toor Dal 1kg", "Moong Dal 1kg", "Sugar 1kg", "Salt 1kg"] },
@@ -113,8 +119,10 @@ const GROCERY_CATEGORIES = [
   { id: "care", icon: "🧼", name: "Personal Care", chips: ["Shampoo bottle", "Face Wash", "Sanitary Pads", "Hand Sanitizer", "Razor"] },
 ];
 
-function renderGrocery() {
-  const wrap = document.getElementById("groceryCategories");
+let currentWeeklyWindow = null;
+
+function renderWeeklyCategories() {
+  const wrap = document.getElementById("weeklyCategories");
   wrap.innerHTML = GROCERY_CATEGORIES.map((cat) => `
     <div class="category-block">
       <div class="category-head">
@@ -122,29 +130,63 @@ function renderGrocery() {
         <h3 style="margin:0;">${cat.name}</h3>
       </div>
       <div class="chip-row" style="margin-bottom:16px;">
-        ${cat.chips.map((c) => `<button type="button" class="chip" onclick='quickAddGrocery(${JSON.stringify(c)}, ${JSON.stringify(cat.name)})'>+ ${c}</button>`).join("")}
+        ${cat.chips.map((c) => `<button type="button" class="chip" onclick='quickAddWeekly(${JSON.stringify(c)}, ${JSON.stringify(cat.name)})'>+ ${c}</button>`).join("")}
       </div>
       <div class="input-row">
-        <input type="text" id="custom-${cat.id}" placeholder="Add your own item — e.g. 2kg Maggi noodles, a specific brand...">
-        <button class="btn btn-ghost" style="flex:0 0 auto;" onclick='addCustomGrocery(${JSON.stringify(cat.id)}, ${JSON.stringify(cat.name)})'>Add</button>
+        <input type="text" id="weekly-custom-${cat.id}" placeholder="Add your own item — e.g. 2kg Maggi noodles, a specific brand...">
+        <button class="btn btn-ghost" style="flex:0 0 auto;" onclick='addCustomWeekly(${JSON.stringify(cat.id)}, ${JSON.stringify(cat.name)})'>Add</button>
       </div>
     </div>
   `).join("");
 }
 
-function quickAddGrocery(itemName, categoryName) {
+function quickAddWeekly(itemName, categoryName) {
   addToCart({ service: "grocery", name: itemName, price: null, note: categoryName });
 }
 
-function addCustomGrocery(catId, categoryName) {
-  const input = document.getElementById("custom-" + catId);
+function addCustomWeekly(catId, categoryName) {
+  const input = document.getElementById("weekly-custom-" + catId);
   const text = input.value.trim();
   if (!text) return showToast("Type an item first.");
   addToCart({ service: "grocery", name: text, price: null, note: categoryName });
   input.value = "";
 }
 
-renderGrocery();
+function formatWeeklyDate(dateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
+  if (!m) return dateStr || "";
+  return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
+}
+
+async function loadWeeklyWindow() {
+  try {
+    const res = await fetch("/api/weekly/current");
+    const data = await res.json();
+    currentWeeklyWindow = data.open ? data.window : null;
+  } catch (e) {
+    currentWeeklyWindow = null;
+  }
+  renderWeeklyState();
+}
+
+function renderWeeklyState() {
+  const open = !!currentWeeklyWindow;
+  document.getElementById("weeklyClosedNotice").style.display = open ? "none" : "block";
+  document.getElementById("weeklyBanner").style.display = open ? "flex" : "none";
+  document.getElementById("weeklyCategories").style.display = open ? "block" : "none";
+  if (!open) return;
+
+  document.getElementById("weeklyBanner").innerHTML = `
+    <div style="font-size:1.3rem;">🗓️</div>
+    <div>
+      <b>Order by ${formatSchedule(currentWeeklyWindow.cutoffAt)} for delivery on ${formatWeeklyDate(currentWeeklyWindow.deliveryDate)}</b>
+      <p>Everyone's list is combined after the cutoff and routed to drivers straight across town — there's no time slot to pick, just get your list in before it closes.</p>
+    </div>`;
+  setCheckoutQuery("?weekly=" + currentWeeklyWindow.id);
+}
+
+renderWeeklyCategories();
+loadWeeklyWindow();
 </script>
 <script src="/js/pwa.js"></script>
 </body>

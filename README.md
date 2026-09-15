@@ -388,6 +388,26 @@ The slot is shown wherever the order is: "booked in" on the confirmation instead
 
 **Not built:** real service hours. The 08:00–22:00 window is a pair of constants in `lib/schedule.js`, not a configurable per-service schedule, and nothing stops an *ASAP* order at 3am — only scheduled ones are bounded. Proper open/closed handling is still on the list.
 
+## Weekly grocery list & route-sequenced delivery (`weekly.html`)
+
+A separate, once-a-week flow for grocery/vegetable pre-orders — deliberately **not** built as time slots. The original idea was one slot per customer, but the real problem that surfaces at 10-20 orders a week isn't slot collisions, it's geography: assigning people in raw signup order can send a driver zigzagging across town. This instead sequences every order in a window into one sensible route and splits it across whichever drivers are working, each capped at a fixed number of stops.
+
+**The cycle, run entirely by hand from `admin.html`'s new 🗓️ Weekly tab:**
+1. **Open a window** — a cutoff (date + time) and a delivery date. `weekly.html` immediately starts showing "Order by X for delivery on Y" and accepting submissions.
+2. **Customers submit their list** on `weekly.html`, reusing `grocery.html`'s exact category/chip/custom-item picker — same `{service:"grocery", name, price:null}` items, just landing in a separate cart (`warpx_weekly_cart`, via `js/cart.js`'s `setCartKey()`) so a weekly list and a same-day grocery cart never mix. Checkout is the *same* `checkout.html` (address book, COD/UPI) with the timing card replaced by a static delivery-date line — there's no time to pick.
+3. **Close the window** — by hand, or automatically once the cutoff passes (`POST /api/orders` checks both). Either way, no new submissions land after this.
+4. **Preview, then assign routes** — pick which approved drivers are working and a max-deliveries-per-driver cap; "Preview routes" shows the per-driver stop count, an approximate distance, and the visiting order before anything is saved; "Confirm & assign" writes `driver_id`/`route_position` onto each order in one transaction.
+5. **Drivers see it** as a new "This week's grocery route" section in the Driver Hub, sorted by stop number, with one combined Google Maps link chaining every remaining stop plus each stop's own link — worked with the exact same "Picked up"/delivery-code buttons as any other order.
+
+**The routing itself (`lib/route.js`)** is a nearest-neighbor walk starting from `DARK_STORE` (the same dark-store coordinates `lib/zone.js` already uses for delivery-zone pricing), sliced into contiguous, evenly-sized chunks capped at the owner's max-per-driver number. Deliberately not a real TSP solver — at the scale this runs at (a week's orders, capped per driver) nearest-neighbor is instant and close enough. Its one known weakness is leaving an out-of-the-way stop for last, producing one longer final leg; the owner's preview screen exists specifically so that's visible before committing, not discovered mid-route.
+
+**Kept separate from the existing ASAP/scheduled system on purpose:** a weekly order never touches `validateSchedule`/`isOpenNow` — it's never customer-time-picked, so those business-hours rules don't apply to it. It's also invisible to the driver board (`GET /api/orders/available` excludes anything with a `weekly_window_id`) for its entire life before routing — a driver can only get a weekly stop through the owner's Assign Routes step, never by self-claiming, which is what makes the routing meaningful in the first place.
+
+**Known limitations:**
+- **Google's free `dir` URL caps out around 9-10 waypoints** in some Maps clients. A very large max-per-driver cap could truncate the driver's *combined* route link — each stop's individual Navigate button is unaffected either way.
+- **No duplicate-submission guard.** A customer submitting the weekly form twice before cutoff gets two separate orders, both routed independently — not prevented, just not deduplicated.
+- **Reassignment locks once underway.** "Confirm & assign" can be re-run to fix a wrong driver pick right up until any order in that window moves past `placed` — after that, routes are final, since pulling a stop away from a driver already out delivering would leave someone standing at an address nobody's coming to.
+
 ## Owner earnings (`admin.html` → 💰 Earnings)
 
 The dashboard separates **what customers paid** from **what WarpX keeps**, because on a pickup-and-drop service those are very different numbers — most of an order's subtotal is the cafe's or the shop's money passing through.

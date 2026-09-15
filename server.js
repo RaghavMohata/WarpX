@@ -9,8 +9,10 @@ const { hashPassword, verifyPassword } = require("./lib/auth");
 const googleAuth = require("./lib/google");
 const { tierFor, payFor, payIfOneMore, BASE_PAY_PER_DELIVERY } = require("./lib/tier");
 const { feeFor } = require("./lib/fee");
-const { validateSchedule, isDueForDispatch, isOpenNow, nextOpeningSlot,
+const { validateSchedule, parseSchedule, isDueForDispatch, isOpenNow, nextOpeningSlot,
         SCHEDULE_OPEN_HOUR, SCHEDULE_CLOSE_HOUR } = require("./lib/schedule");
+const { isWindowOpen } = require("./lib/weekly");
+const { assignRoutes, routeDistanceKm } = require("./lib/route");
 const { PICASSO_MENU } = require("./js/menu-data");
 const config = require("./config");
 
@@ -427,7 +429,7 @@ app.delete("/api/addresses/:id", (req, res) => {
 // Place an order — computes totals server-side and persists items.
 // Requires a logged-in account: orders are never anonymous.
 app.post("/api/orders", (req, res) => {
-  const { userId, items, paymentMethod, upiId, addressId, scheduleDate, scheduleTime } = req.body || {};
+  const { userId, items, paymentMethod, upiId, addressId, scheduleDate, scheduleTime, weeklyWindowId } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "items are required" });
   }
@@ -437,11 +439,21 @@ app.post("/api/orders", (req, res) => {
 
   const method = paymentMethod === "upi" ? "upi" : "cod";
 
-  /* An order is either ASAP (no slot) or scheduled. The browser validates the
-     same way via lib/schedule.js, but this is the check that counts — it runs
-     against the server's clock, which is the one dispatch actually uses. */
+  /* An order is ASAP, scheduled, or part of a weekly grocery window — never
+     more than one of those. A weekly order is never customer-time-picked (it
+     always lands on that window's fixed delivery_date), so it skips the
+     ASAP/scheduled business-hours check entirely. The browser validates the
+     schedule case the same way via lib/schedule.js, but this is the check
+     that counts — it runs against the server's clock, which is the one
+     dispatch actually uses. */
   let scheduledFor = null;
-  if (scheduleDate || scheduleTime) {
+  let weeklyWindow = null;
+  if (weeklyWindowId != null) {
+    weeklyWindow = db.prepare("SELECT * FROM weekly_windows WHERE id = ?").get(Number(weeklyWindowId));
+    if (!isWindowOpen(weeklyWindow)) {
+      return res.status(409).json({ error: "This week's grocery window isn't taking orders anymore.", weeklyClosed: true });
+    }
+  } else if (scheduleDate || scheduleTime) {
     const check = validateSchedule(scheduleDate, scheduleTime);
     if (!check.ok) return res.status(400).json({ error: check.error });
     scheduledFor = check.value;
@@ -490,8 +502,8 @@ app.post("/api/orders", (req, res) => {
   try {
     const orderInfo = db
       .prepare(
-        `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id, lat, lng, address, delivery_otp, address_label, scheduled_for)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id, lat, lng, address, delivery_otp, address_label, scheduled_for, weekly_window_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         orderNumber, userId, subtotal, deliveryFee, total, etaMin, method,
@@ -499,7 +511,8 @@ app.post("/api/orders", (req, res) => {
         loc ? loc.lat : null, loc ? loc.lng : null, loc ? loc.address : null,
         deliveryOtp,
         chosenAddress ? chosenAddress.label : null,
-        scheduledFor
+        scheduledFor,
+        weeklyWindow ? weeklyWindow.id : null
       );
     orderId = orderInfo.lastInsertRowid;
 
@@ -535,6 +548,166 @@ app.post("/api/orders", (req, res) => {
   res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed", deliveryOtp, addressLabel: chosenAddress ? chosenAddress.label : null, scheduledFor });
 });
 
+/* ---- Weekly grocery windows -----------------------------------------------
+   Once a week the owner opens a window; customers submit their grocery list
+   against it via the weeklyWindowId branch in POST /api/orders above; once
+   closed, the owner sequences all of that window's orders into a
+   geographic route and splits them across drivers, capped at a fixed
+   count each — see lib/route.js for why nearest-neighbor is enough here. */
+
+// Public — weekly.html polls this to know whether to show its order form.
+app.get("/api/weekly/current", (req, res) => {
+  const w = db.prepare("SELECT * FROM weekly_windows WHERE status = 'open' ORDER BY id DESC LIMIT 1").get();
+  if (!isWindowOpen(w)) return res.json({ open: false });
+  res.json({ open: true, window: { id: w.id, cutoffAt: w.cutoff_at, deliveryDate: w.delivery_date } });
+});
+
+// Only one window in ('open','closed') at a time — enforced here, not in the
+// schema, the same way a single default address is enforced in server.js
+// rather than with a partial-unique index.
+function currentActiveWeeklyWindow() {
+  return db.prepare("SELECT * FROM weekly_windows WHERE status IN ('open','closed') ORDER BY id DESC LIMIT 1").get();
+}
+
+// Every weekly window, newest first, with how many orders it collected —
+// owner dashboard use.
+app.get("/api/admin/weekly/windows", (req, res) => {
+  const windows = db.prepare("SELECT * FROM weekly_windows ORDER BY id DESC").all();
+  const countStmt = db.prepare("SELECT COUNT(*) AS n FROM orders WHERE weekly_window_id = ?");
+  res.json(windows.map((w) => ({ ...w, orderCount: countStmt.get(w.id).n })));
+});
+
+app.post("/api/admin/weekly/windows", (req, res) => {
+  const { cutoffDate, cutoffTime, deliveryDate } = req.body || {};
+  if (currentActiveWeeklyWindow()) {
+    return res.status(409).json({ error: "There's already a weekly window in progress — close and route it before opening another." });
+  }
+  const cutoff = parseSchedule(`${cutoffDate} ${cutoffTime}`);
+  if (!cutoff) return res.status(400).json({ error: "Pick a valid cutoff date and time." });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(deliveryDate || ""))) {
+    return res.status(400).json({ error: "Pick a delivery date." });
+  }
+  if (cutoff.getTime() <= Date.now()) return res.status(400).json({ error: "The cutoff has to be in the future." });
+
+  const info = db
+    .prepare("INSERT INTO weekly_windows (cutoff_at, delivery_date) VALUES (?, ?)")
+    .run(`${cutoffDate} ${cutoffTime}`, deliveryDate);
+  res.json(db.prepare("SELECT * FROM weekly_windows WHERE id = ?").get(info.lastInsertRowid));
+});
+
+// The owner's manual early cutoff — stops submissions even before cutoff_at.
+app.patch("/api/admin/weekly/windows/:id/close", (req, res) => {
+  const id = Number(req.params.id);
+  const w = db.prepare("SELECT * FROM weekly_windows WHERE id = ?").get(id);
+  if (!w) return res.status(404).json({ error: "No such weekly window." });
+  if (w.status !== "open") return res.status(409).json({ error: "That window isn't open." });
+  db.prepare("UPDATE weekly_windows SET status = 'closed', closed_at = datetime('now') WHERE id = ?").run(id);
+  res.json(db.prepare("SELECT * FROM weekly_windows WHERE id = ?").get(id));
+});
+
+// Every order in a window, for the owner's review list.
+app.get("/api/admin/weekly/windows/:id/orders", (req, res) => {
+  const id = Number(req.params.id);
+  const orders = db
+    .prepare(
+      `SELECT orders.*, users.name AS customer_name, users.phone AS customer_phone, drivers.name AS driver_name
+       FROM orders
+       LEFT JOIN users ON users.id = orders.user_id
+       LEFT JOIN drivers ON drivers.id = orders.driver_id
+       WHERE orders.weekly_window_id = ?
+       ORDER BY orders.route_position IS NULL, orders.route_position ASC, orders.id ASC`
+    )
+    .all(id);
+  const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
+  res.json(orders.map((o) => ({ ...withoutOtp(o), items: itemsStmt.all(o.id) })));
+});
+
+// Shared by preview and commit so a preview can never show something
+// different from what committing actually produces.
+function buildWeeklyRoutes(windowId, driverIds, maxPerDriver) {
+  const orders = db
+    .prepare(
+      `SELECT orders.*, users.name AS customer_name, users.phone AS customer_phone
+       FROM orders LEFT JOIN users ON users.id = orders.user_id
+       WHERE orders.weekly_window_id = ?`
+    )
+    .all(windowId);
+  const ids = (driverIds || []).map(Number);
+  const validDrivers = ids.length
+    ? db.prepare(`SELECT * FROM drivers WHERE id IN (${ids.map(() => "?").join(",")}) AND status = 'approved'`).all(...ids)
+    : [];
+  if (validDrivers.length !== ids.length) throw new Error("Only approved drivers can be assigned a route.");
+
+  const { routes, unlocatedCount } = assignRoutes(orders, ids, Number(maxPerDriver));
+  const driverById = new Map(validDrivers.map((d) => [d.id, d]));
+  return {
+    routes: routes.map((r) => ({
+      driverId: r.driverId,
+      driverName: driverById.get(r.driverId).name,
+      stops: r.stops.map((o, i) => ({ ...withoutOtp(o), routePosition: i + 1 })),
+      totalDistanceKm: routeDistanceKm(r.stops),
+    })),
+    unlocatedCount,
+    totalOrders: orders.length,
+  };
+}
+
+// Computes a route split without saving anything, so the owner can see it
+// before committing.
+app.post("/api/admin/weekly/windows/:id/preview-routes", (req, res) => {
+  const id = Number(req.params.id);
+  const w = db.prepare("SELECT * FROM weekly_windows WHERE id = ?").get(id);
+  if (!w) return res.status(404).json({ error: "No such weekly window." });
+  if (w.status === "open") return res.status(409).json({ error: "Close the window to new orders before assigning routes." });
+  try {
+    res.json(buildWeeklyRoutes(id, req.body.driverIds, req.body.maxPerDriver));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/admin/weekly/windows/:id/assign-routes", (req, res) => {
+  const id = Number(req.params.id);
+  const w = db.prepare("SELECT * FROM weekly_windows WHERE id = ?").get(id);
+  if (!w) return res.status(404).json({ error: "No such weekly window." });
+  if (w.status === "open") return res.status(409).json({ error: "Close the window to new orders before assigning routes." });
+
+  // Re-running this while already 'routed' is allowed — it's how the owner
+  // fixes a wrong driver pick — but only until a driver has actually started
+  // on a stop. Past that, reassigning would pull an order out from under
+  // someone mid-delivery.
+  if (w.status === "routed") {
+    const started = db
+      .prepare("SELECT COUNT(*) AS n FROM orders WHERE weekly_window_id = ? AND status != 'placed'")
+      .get(id).n;
+    if (started > 0) {
+      return res.status(409).json({ error: "Some of this week's deliveries are already underway — routes can't be reassigned now." });
+    }
+  }
+
+  let result;
+  try {
+    result = buildWeeklyRoutes(id, req.body.driverIds, req.body.maxPerDriver);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  db.exec("BEGIN");
+  try {
+    const setRoute = db.prepare("UPDATE orders SET driver_id = ?, route_position = ? WHERE id = ?");
+    for (const route of result.routes) {
+      for (const stop of route.stops) setRoute.run(route.driverId, stop.routePosition, stop.id);
+    }
+    db.prepare("UPDATE weekly_windows SET status = 'routed', routed_at = datetime('now'), max_per_driver = ? WHERE id = ?")
+      .run(Number(req.body.maxPerDriver), id);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    return res.status(400).json({ error: "Could not save the route assignment: " + err.message });
+  }
+  res.json(result);
+});
+
 // All orders across all customers — for the owner's dashboard (admin.html).
 app.get("/api/orders", (req, res) => {
   const orders = db
@@ -559,8 +732,12 @@ app.get("/api/orders", (req, res) => {
 app.get("/api/orders/available", (req, res) => {
   const orders = db
     .prepare(
+      // weekly_window_id IS NULL: a weekly grocery order is never
+      // self-claimed off this board — it only gets a driver through the
+      // owner's route-assignment step, so a driver can't cherry-pick
+      // individual weekly stops and defeat the whole point of routing them.
       `SELECT * FROM orders
-       WHERE driver_id IS NULL AND status != 'delivered'
+       WHERE driver_id IS NULL AND status != 'delivered' AND weekly_window_id IS NULL
        ORDER BY id ASC`
     )
     .all();
@@ -877,7 +1054,15 @@ app.get("/api/drivers/:id/summary", (req, res) => {
   const pay = payFor({ deliveries: stats.today, feeTotal: stats.feesToday, percent: progress.percent });
 
   const active = db
-    .prepare("SELECT * FROM orders WHERE driver_id = ? AND status != 'delivered' ORDER BY id ASC")
+    .prepare("SELECT * FROM orders WHERE driver_id = ? AND weekly_window_id IS NULL AND status != 'delivered' ORDER BY id ASC")
+    .all(id);
+  const weeklyStopRows = db
+    .prepare(
+      `SELECT orders.*, weekly_windows.delivery_date AS weekly_delivery_date
+       FROM orders JOIN weekly_windows ON weekly_windows.id = orders.weekly_window_id
+       WHERE orders.driver_id = ? AND orders.status != 'delivered'
+       ORDER BY orders.route_position ASC`
+    )
     .all(id);
   const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
 
@@ -891,6 +1076,10 @@ app.get("/api/drivers/:id/summary", (req, res) => {
     lifetimeDeliveries: stats.lifetime,
     resetsInSeconds: secondsUntilReset(),
     active: active.map((o) => {
+      const items = itemsStmt.all(o.id);
+      return { ...withoutOtp(o), items, pickupAddress: pickupAddressFor(items) };
+    }),
+    weeklyStops: weeklyStopRows.map((o) => {
       const items = itemsStmt.all(o.id);
       return { ...withoutOtp(o), items, pickupAddress: pickupAddressFor(items) };
     }),

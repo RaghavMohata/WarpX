@@ -1,7 +1,17 @@
 /* WarpX cart — shared across every service page via localStorage.
    Delivery pricing comes from lib/fee.js, which every page loads before this
    one, so the cart quotes exactly what the server will charge. */
-const CART_KEY = "warpx_cart";
+let CART_KEY = "warpx_cart";
+// weekly.html swaps this to "warpx_weekly_cart" before touching the cart at
+// all, so a customer's weekly grocery list and their regular cart never mix
+// — every other page never calls this, so nothing about them changes.
+function setCartKey(key) { CART_KEY = key; }
+
+// Where goToCheckout() sends the browser. weekly.html sets this to
+// "?weekly=<id>" so checkout.html knows it's handling a weekly submission;
+// every other page leaves it at "" and behaves exactly as before.
+let checkoutQuery = "";
+function setCheckoutQuery(q) { checkoutQuery = q; }
 
 function getCart() {
   try { return JSON.parse(localStorage.getItem(CART_KEY)) || []; }
@@ -177,13 +187,15 @@ function getWarpxUser() {
   catch (e) { return null; }
 }
 
-function showOrderModal(orderNumber, eta, persisted, paymentLabel, deliveryOtp, scheduledFor) {
+function showOrderModal(orderNumber, eta, persisted, paymentLabel, deliveryOtp, scheduledFor, weeklyDeliveryLabel) {
   const modalBody = document.getElementById("modalBody");
   if (modalBody) {
     modalBody.innerHTML = `
       <div class="modal-icon">✅</div>
       <h3>Order placed!</h3>
-      <p class="text-muted">${scheduledFor
+      <p class="text-muted">${weeklyDeliveryLabel
+        ? `Order <b>#${orderNumber}</b> is booked in for this week's grocery round. We'll have it with you on <b>${weeklyDeliveryLabel}</b>.`
+        : scheduledFor
         ? `Order <b>#${orderNumber}</b> is booked in. We'll have it with you <b>${formatSchedule(scheduledFor)}</b>.`
         : `Order <b>#${orderNumber}</b> is being prepped. At warp speed, expect it in about <b>${eta}</b>.`}</p>
       ${deliveryOtp ? `
@@ -207,10 +219,10 @@ function goToCheckout() {
   const user = getWarpxUser();
   if (!user || !user.id) {
     showToast("Log in to check out — your cart is saved.");
-    setTimeout(() => { window.location.href = "login.html?redirect=checkout.html"; }, 900);
+    setTimeout(() => { window.location.href = "login.html?redirect=" + encodeURIComponent("checkout.html" + checkoutQuery); }, 900);
     return;
   }
-  window.location.href = "checkout.html";
+  window.location.href = "checkout.html" + checkoutQuery;
 }
 
 function closeModal() {

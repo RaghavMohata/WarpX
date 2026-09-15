@@ -66,6 +66,7 @@
   <div class="segmented" id="mainTabs" style="margin-bottom:18px;">
     <button type="button" class="active" data-tab="orders">📦 Orders</button>
     <button type="button" data-tab="drivers">🚴 Drivers <span id="driverBadge" class="badge badge-lime" style="display:none;margin-left:4px;"></span></button>
+    <button type="button" data-tab="weekly">🗓️ Weekly</button>
     <button type="button" data-tab="earnings">💰 Earnings</button>
     <button type="button" data-tab="payouts">💸 Payouts</button>
   </div>
@@ -105,6 +106,10 @@
       <button type="button" data-val="all">All</button>
     </div>
     <div id="driversList"></div>
+  </div>
+
+  <div id="weeklyPanel" style="display:none;">
+    <div id="weeklyBody"></div>
   </div>
 </div>
 
@@ -232,6 +237,7 @@ document.getElementById("mainTabs").addEventListener("click", (e) => {
   currentTab = btn.dataset.tab;
   document.getElementById("ordersPanel").style.display = currentTab === "orders" ? "block" : "none";
   document.getElementById("driversPanel").style.display = currentTab === "drivers" ? "block" : "none";
+  document.getElementById("weeklyPanel").style.display = currentTab === "weekly" ? "block" : "none";
   document.getElementById("earningsPanel").style.display = currentTab === "earnings" ? "block" : "none";
   document.getElementById("payoutsPanel").style.display = currentTab === "payouts" ? "block" : "none";
   refreshCurrentTab();
@@ -268,6 +274,7 @@ function refreshCurrentTab() {
   if (currentTab === "orders") loadOrders(true);
   else if (currentTab === "earnings") loadEarnings();
   else if (currentTab === "payouts") loadPayouts();
+  else if (currentTab === "weekly") loadWeekly();
   else loadDrivers(true);
 }
 
@@ -731,6 +738,254 @@ function esc(str) {
   const div = document.createElement("div");
   div.textContent = str ?? "";
   return div.innerHTML;
+}
+
+/* ---- Weekly grocery windows ----------------------------------------------
+   Four states, driven by the newest window's status (or its absence):
+   no window / last one 'routed' -> a form to open the next one; 'open' ->
+   submissions come in, with a manual early-close button; 'closed' -> pick
+   drivers + a cap, preview the route, then commit; 'routed' -> the
+   committed per-driver stop lists. */
+let weeklyWindows = [];
+let weeklyOrders = [];
+let weeklyApprovedDrivers = [];
+let weeklyPreview = null;
+let weeklySelectedDriverIds = new Set();
+
+function formatWeeklyDate(dateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
+  if (!m) return dateStr || "";
+  return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
+}
+
+async function loadWeekly() {
+  try {
+    const res = await fetch("/api/admin/weekly/windows");
+    weeklyWindows = await res.json();
+  } catch (e) {
+    showToast("Could not reach the server.");
+    return;
+  }
+
+  const active = weeklyWindows[0];
+  weeklyOrders = [];
+  if (active) {
+    try {
+      const r = await fetch(`/api/admin/weekly/windows/${active.id}/orders`);
+      weeklyOrders = await r.json();
+    } catch (e) {}
+  }
+  try {
+    const dres = await fetch("/api/drivers");
+    weeklyApprovedDrivers = (await dres.json()).filter((d) => d.status === "approved");
+  } catch (e) {
+    weeklyApprovedDrivers = [];
+  }
+  renderWeekly();
+}
+
+function weeklyOrderRowsHtml(orders) {
+  if (!orders.length) return `<p class="text-muted" style="font-size:.85rem;">No submissions yet.</p>`;
+  return `<div style="margin-top:10px;">${orders.map((o) => `
+    <div class="row-between" style="padding:8px 0;border-top:1px solid var(--line);font-size:.87rem;gap:10px;flex-wrap:wrap;">
+      <span><b>${esc(o.customer_name || "Customer")}</b> · ${esc(o.items.map((it) => `${it.qty}x ${it.name}`).join(", "))}</span>
+      <span class="text-muted">${o.driver_name ? `🚴 ${esc(o.driver_name)}${o.route_position != null ? " · Stop " + o.route_position : ""}` : esc(o.address_label || o.address || "no address")}</span>
+    </div>`).join("")}</div>`;
+}
+
+function openWeeklyFormHtml() {
+  return `
+    <div class="card" style="padding:26px;margin-bottom:20px;">
+      <h3 style="margin-bottom:14px;">Start this week's grocery window</h3>
+      <div class="grid grid-2" style="gap:14px;margin-bottom:14px;">
+        <div class="field" style="margin-bottom:0;">
+          <label for="wkCutoffDate">Cutoff date</label>
+          <input type="date" id="wkCutoffDate">
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label for="wkCutoffTime">Cutoff time</label>
+          <input type="time" id="wkCutoffTime" step="900">
+        </div>
+      </div>
+      <div class="field">
+        <label for="wkDeliveryDate">Delivery date</label>
+        <input type="date" id="wkDeliveryDate">
+      </div>
+      <button class="btn btn-primary" onclick="openWeeklyWindow(this)">Open this week's list</button>
+    </div>`;
+}
+
+function routedRecapHtml(active) {
+  const byDriver = new Map();
+  weeklyOrders.forEach((o) => {
+    const key = o.driver_name || "Unassigned";
+    if (!byDriver.has(key)) byDriver.set(key, []);
+    byDriver.get(key).push(o);
+  });
+  return `
+    <div class="card" style="padding:26px;">
+      <h3 style="margin-bottom:6px;">This week's routes</h3>
+      <div class="text-muted" style="font-size:.85rem;margin-bottom:10px;">Delivered ${esc(formatWeeklyDate(active.delivery_date))} · ${weeklyOrders.length} order${weeklyOrders.length === 1 ? "" : "s"}</div>
+      ${[...byDriver.entries()].map(([driverName, orders]) => `
+        <div style="margin-bottom:14px;">
+          <b>🚴 ${esc(driverName)}</b> <span class="text-muted">· ${orders.length} stop${orders.length === 1 ? "" : "s"}</span>
+          ${weeklyOrderRowsHtml(orders.sort((a, b) => (a.route_position || 0) - (b.route_position || 0)))}
+        </div>`).join("")}
+    </div>`;
+}
+
+function openWindowHtml(active) {
+  return `
+    <div class="card" style="padding:26px;">
+      <div class="row-between" style="flex-wrap:wrap;gap:10px;margin-bottom:6px;">
+        <div>
+          <h3 style="margin:0;">This week's list is open</h3>
+          <div class="text-muted" style="font-size:.85rem;">Order by <b>${esc(formatSchedule(active.cutoff_at))}</b> · delivered <b>${esc(formatWeeklyDate(active.delivery_date))}</b></div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="closeWeeklyWindow(${active.id})">Close window now</button>
+      </div>
+      <div class="text-muted" style="font-size:.85rem;">${weeklyOrders.length} submission${weeklyOrders.length === 1 ? "" : "s"} so far</div>
+      ${weeklyOrderRowsHtml(weeklyOrders)}
+    </div>`;
+}
+
+function driverCheckboxesHtml() {
+  if (!weeklyApprovedDrivers.length) {
+    return `<p class="text-muted" style="font-size:.85rem;">No approved drivers yet — approve one in the Drivers tab first.</p>`;
+  }
+  return weeklyApprovedDrivers.map((d) => `
+    <label class="flex" style="align-items:center;gap:8px;padding:6px 0;">
+      <input type="checkbox" value="${d.id}" onchange="toggleWeeklyDriver(${d.id}, this.checked)" ${weeklySelectedDriverIds.has(d.id) ? "checked" : ""}>
+      ${esc(d.name)} <span class="text-muted">· ${esc(d.phone)}</span>
+    </label>`).join("");
+}
+
+function toggleWeeklyDriver(id, checked) {
+  if (checked) weeklySelectedDriverIds.add(id);
+  else weeklySelectedDriverIds.delete(id);
+}
+
+function closedWindowHtml(active) {
+  return `
+    <div class="card" style="padding:26px;margin-bottom:20px;">
+      <h3 style="margin-bottom:6px;">This week's list is closed</h3>
+      <div class="text-muted" style="font-size:.85rem;">${weeklyOrders.length} order${weeklyOrders.length === 1 ? "" : "s"} to route · delivering ${esc(formatWeeklyDate(active.delivery_date))}</div>
+      ${weeklyOrderRowsHtml(weeklyOrders)}
+    </div>
+    <div class="card" style="padding:26px;">
+      <h3 style="margin-bottom:12px;">Assign routes</h3>
+      <div id="weeklyDriverPicker">${driverCheckboxesHtml()}</div>
+      <div class="field" style="max-width:220px;margin-top:12px;">
+        <label for="wkMaxPerDriver">Max deliveries per driver</label>
+        <input type="number" id="wkMaxPerDriver" min="1" value="${active.max_per_driver || 8}">
+      </div>
+      <button class="btn btn-outline" onclick="previewWeeklyRoutes(${active.id})">Preview routes</button>
+      <div id="weeklyPreviewBody"></div>
+    </div>`;
+}
+
+function renderWeekly() {
+  const body = document.getElementById("weeklyBody");
+  const active = weeklyWindows[0];
+
+  if (!active) { body.innerHTML = openWeeklyFormHtml(); return; }
+  if (active.status === "routed") { body.innerHTML = openWeeklyFormHtml() + routedRecapHtml(active); return; }
+  if (active.status === "open") { body.innerHTML = openWindowHtml(active); return; }
+  body.innerHTML = closedWindowHtml(active); // 'closed'
+}
+
+async function openWeeklyWindow(btn) {
+  const cutoffDate = document.getElementById("wkCutoffDate").value;
+  const cutoffTime = document.getElementById("wkCutoffTime").value;
+  const deliveryDate = document.getElementById("wkDeliveryDate").value;
+  if (!cutoffDate || !cutoffTime || !deliveryDate) return showToast("Fill in the cutoff and delivery date first.");
+
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/admin/weekly/windows", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cutoffDate, cutoffTime, deliveryDate }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error); return; }
+    showToast("This week's list is open.");
+    loadWeekly();
+  } catch (e) {
+    showToast("Could not reach the server.");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function closeWeeklyWindow(id) {
+  if (!confirm("Close this week's list to new orders now?")) return;
+  try {
+    const res = await fetch(`/api/admin/weekly/windows/${id}/close`, { method: "PATCH" });
+    const data = await res.json();
+    if (!res.ok) return showToast(data.error);
+    showToast("Window closed.");
+    loadWeekly();
+  } catch (e) {
+    showToast("Could not reach the server.");
+  }
+}
+
+async function previewWeeklyRoutes(windowId) {
+  const driverIds = [...weeklySelectedDriverIds];
+  const maxPerDriver = Number(document.getElementById("wkMaxPerDriver").value);
+  try {
+    const res = await fetch(`/api/admin/weekly/windows/${windowId}/preview-routes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ driverIds, maxPerDriver }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error); document.getElementById("weeklyPreviewBody").innerHTML = ""; return; }
+    weeklyPreview = data;
+    renderWeeklyPreview(windowId);
+  } catch (e) {
+    showToast("Could not reach the server.");
+  }
+}
+
+function renderWeeklyPreview(windowId) {
+  const box = document.getElementById("weeklyPreviewBody");
+  if (!weeklyPreview) { box.innerHTML = ""; return; }
+  box.innerHTML = `
+    ${weeklyPreview.unlocatedCount ? `<div class="badge badge-warn" style="margin:12px 0;">${weeklyPreview.unlocatedCount} order(s) have no saved location — placed at the end of the route.</div>` : ""}
+    ${weeklyPreview.routes.map((r) => `
+      <div class="card" style="padding:16px 18px;margin-top:12px;">
+        <div class="row-between" style="margin-bottom:8px;">
+          <b>🚴 ${esc(r.driverName)}</b>
+          <span class="text-muted">${r.stops.length} stop${r.stops.length === 1 ? "" : "s"} · ~${r.totalDistanceKm} km</span>
+        </div>
+        <ol style="margin:0;padding-left:18px;font-size:.87rem;">
+          ${r.stops.map((s) => `<li>${esc(s.customer_name || "Customer")} — ${esc(s.address_label || s.address || "no address")}</li>`).join("")}
+        </ol>
+      </div>`).join("")}
+    <button class="btn btn-primary" style="margin-top:14px;" onclick="confirmWeeklyRoutes(${windowId})">Confirm & assign</button>
+  `;
+}
+
+async function confirmWeeklyRoutes(windowId) {
+  const driverIds = [...weeklySelectedDriverIds];
+  const maxPerDriver = Number(document.getElementById("wkMaxPerDriver").value);
+  try {
+    const res = await fetch(`/api/admin/weekly/windows/${windowId}/assign-routes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ driverIds, maxPerDriver }),
+    });
+    const data = await res.json();
+    if (!res.ok) return showToast(data.error);
+    showToast("Routes assigned.");
+    weeklyPreview = null;
+    weeklySelectedDriverIds = new Set();
+    loadWeekly();
+  } catch (e) {
+    showToast("Could not reach the server.");
+  }
 }
 
 let pollTimer;

@@ -24,6 +24,7 @@
       <a href="index.html">Home</a>
       <a href="food.html">Food</a>
       <a href="grocery.html">Grocery</a>
+      <a href="weekly.html">Weekly List</a>
       <a href="medicine.html">Medicine</a>
       <a href="laundry.html">Laundry</a>
       <a href="anything.html">Anything Else</a>
@@ -114,6 +115,7 @@
 
       <div class="card" style="padding:26px;margin-bottom:20px;">
         <h3 style="margin-bottom:14px;">When do you want it?</h3>
+        <div id="weeklyDeliveryLine" style="display:none;"></div>
         <div id="closedNote"></div>
         <div class="segmented" id="timingSeg" style="margin-bottom:16px;">
           <button type="button" class="active" data-val="now">⚡ As soon as possible</button>
@@ -167,6 +169,7 @@
         <h4>Services</h4>
         <a href="food.html">Picasso Cafe</a>
         <a href="grocery.html">Grocery</a>
+        <a href="weekly.html">Weekly List</a>
         <a href="medicine.html">Medicine</a>
         <a href="laundry.html">Laundry</a>
         <a href="anything.html">Anything Else</a>
@@ -203,6 +206,53 @@ function escapeAttr(str) {
   const div = document.createElement("div");
   div.textContent = str ?? "";
   return div.innerHTML;
+}
+
+/* A weekly grocery checkout ("?weekly=<id>") uses its own cart key — set
+   before anything below ever calls getCart() — and skips the whole
+   ASAP/schedule timing system entirely, since a weekly order always lands on
+   that window's fixed delivery_date, never a time the customer picks. */
+const weeklyWindowId = new URLSearchParams(location.search).get("weekly");
+let weeklyWindowMeta = null;
+if (weeklyWindowId) setCartKey("warpx_weekly_cart");
+
+function formatWeeklyDate(dateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
+  if (!m) return dateStr || "";
+  return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
+}
+
+// Confirms the window is still the one open right now — it could have
+// closed between weekly.html and here — and swaps the timing card for a
+// static delivery-date line. Server-side validation in POST /api/orders
+// remains the real authority either way; this is just so nobody fills out
+// an entire checkout only to be refused on submit.
+async function applyWeeklyMode() {
+  const card = { line: document.getElementById("weeklyDeliveryLine") };
+  try {
+    const res = await fetch("/api/weekly/current");
+    const data = await res.json();
+    if (data.open && String(data.window.id) === String(weeklyWindowId)) {
+      weeklyWindowMeta = data.window;
+    }
+  } catch (e) {
+    // fall through with weeklyWindowMeta left null
+  }
+
+  document.getElementById("closedNote").style.display = "none";
+  document.getElementById("timingSeg").style.display = "none";
+  document.getElementById("schedulePanel").style.display = "none";
+  document.getElementById("nowHint").style.display = "none";
+  card.line.style.display = "block";
+
+  if (weeklyWindowMeta) {
+    card.line.innerHTML = `<div class="sched-ok">🗓️ Delivered on <b>${escapeAttr(formatWeeklyDate(weeklyWindowMeta.deliveryDate))}</b> — this week's grocery round.</div>`;
+  } else {
+    card.line.innerHTML = `<div class="sched-bad">This week's grocery window has closed — your list wasn't submitted. <a href="weekly.html">Go back</a> to check when it opens again.</div>`;
+    const btn = document.getElementById("placeOrderBtn");
+    btn.disabled = true;
+    btn.textContent = "This week's window is closed";
+  }
 }
 
 let paymentMethod = "cod";
@@ -529,10 +579,13 @@ async function submitOrder(btn) {
 
   const selectedAddr = resolveSelectedAddress(addressBook);
 
+  if (weeklyWindowId && !weeklyWindowMeta) return showToast("This week's grocery window has closed.");
+
   // Re-check here rather than trusting the panel's last render: someone can
   // switch to "Schedule it" and hit Place order without touching the inputs.
+  // Skipped entirely for a weekly order — it never has a customer-picked time.
   let schedule = null;
-  if (orderTiming === "later") {
+  if (!weeklyWindowId && orderTiming === "later") {
     const check = renderScheduleHint();
     if (!check.ok) return showToast(check.error);
     schedule = { scheduleDate: document.getElementById("scheduleDate").value, scheduleTime: document.getElementById("scheduleTime").value };
@@ -552,7 +605,7 @@ async function submitOrder(btn) {
       body: JSON.stringify({
         userId: user.id, items: cart, paymentMethod, upiId: upiId || undefined,
         addressId: selectedAddr ? selectedAddr.id : undefined,
-        ...(schedule || {}),
+        ...(weeklyWindowId ? { weeklyWindowId: Number(weeklyWindowId) } : (schedule || {})),
       }),
     });
     const data = await res.json();
@@ -563,12 +616,19 @@ async function submitOrder(btn) {
       btn.textContent = "Place order at warp speed 🚀";
       return;
     }
+    if (res.status === 409 && data.weeklyClosed) {
+      applyWeeklyMode();
+      showToast(data.error);
+      btn.disabled = false;
+      return;
+    }
     if (!res.ok) {
       showToast(data.error || "Could not place order.");
       if (res.status === 401) setTimeout(() => { window.location.href = "login.html?redirect=checkout.html"; }, 1200);
       return;
     }
-    showOrderModal(data.orderNumber, `${data.etaMin} min`, true, paymentLabel, data.deliveryOtp, data.scheduledFor);
+    const weeklyLabel = weeklyWindowMeta ? formatWeeklyDate(weeklyWindowMeta.deliveryDate) : null;
+    showOrderModal(data.orderNumber, `${data.etaMin} min`, true, paymentLabel, data.deliveryOtp, data.scheduledFor, weeklyLabel);
     clearCart();
   } catch (err) {
     // No backend reachable — keep the demo usable with a local-only order.
@@ -593,7 +653,8 @@ async function submitOrder(btn) {
   document.getElementById("checkoutBody").style.display = loggedIn && hasItems ? "block" : "none";
   if (loggedIn && hasItems) {
     renderCheckout();
-    applyOpeningHours();
+    if (weeklyWindowId) applyWeeklyMode();
+    else applyOpeningHours();
     // Draws the saved-address picker once the list comes back; renderCheckout
     // has already painted the fallback, so there's no empty flash.
     loadAddresses();

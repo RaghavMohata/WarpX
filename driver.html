@@ -199,6 +199,13 @@
     <div class="card stat-box"><b id="statAvailable">0</b><span>Waiting to be picked up</span></div>
   </div>
 
+  <div class="sec-head" id="weeklyRouteHead" style="display:none;">
+    <h3>This week's grocery route</h3>
+    <div class="line"></div>
+  </div>
+  <div id="weeklyRouteBanner" style="display:none;"></div>
+  <div id="weeklyRouteList"></div>
+
   <div class="sec-head">
     <h3>Your deliveries</h3>
     <div class="line"></div>
@@ -389,7 +396,7 @@ function orderCard(o, action) {
     <div class="card job">
       <div class="job-head">
         <div>
-          <b>#${esc(o.order_number)}</b>
+          <b>#${esc(o.order_number)}</b>${o.route_position != null ? ` <span class="badge badge-muted">Stop ${o.route_position}</span>` : ""}
           <div class="text-muted" style="font-size:.8rem;">${esc(o.created_at)}</div>
         </div>
         <div style="text-align:right;">
@@ -404,6 +411,70 @@ function orderCard(o, action) {
       <div class="text-muted" style="font-size:.82rem;">${o.scheduled_for ? `<span class="sched-tag">🗓️ ${esc(formatSchedule(o.scheduled_for))}</span> · ` : ""}${o.address_label ? "<b>" + esc(o.address_label) + "</b> · " : ""}${isPickup ? "🚪 <b>Drop-off:</b> " : ""}${esc(o.address) || "No landmark note given"}</div>
       <div class="job-actions">${maps}${action}</div>
     </div>`;
+}
+
+/* One combined Google Maps link for a driver's whole remaining weekly route
+   — chains every stop's lat/lng as waypoints, in route_position order, so
+   tapping one link routes stop-to-stop instead of opening each separately.
+   Google's free `dir` URL caps out around 9-10 waypoints in some Maps
+   clients; a very large max-per-driver could truncate this combined link,
+   but the per-stop Navigate button on each card below is unaffected either
+   way — see README "Known limitations". */
+function formatWeeklyDate(dateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
+  if (!m) return dateStr || "";
+  return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
+}
+
+function weeklyRouteMapsUrl(stops) {
+  const located = stops.filter((s) => s.lat != null && s.lng != null);
+  if (!located.length) return null;
+  const dest = located[located.length - 1];
+  const waypoints = located.slice(0, -1).map((s) => `${s.lat},${s.lng}`).join("|");
+  const url = new URL("https://www.google.com/maps/dir/");
+  url.searchParams.set("api", "1");
+  url.searchParams.set("destination", `${dest.lat},${dest.lng}`);
+  if (waypoints) url.searchParams.set("waypoints", waypoints);
+  return url.toString();
+}
+
+function renderWeeklyRoute(stops) {
+  const head = document.getElementById("weeklyRouteHead");
+  const banner = document.getElementById("weeklyRouteBanner");
+  const list = document.getElementById("weeklyRouteList");
+  if (!stops.length) {
+    head.style.display = "none";
+    banner.style.display = "none";
+    list.innerHTML = "";
+    return;
+  }
+  head.style.display = "flex";
+  banner.style.display = "block";
+  const mapsUrl = weeklyRouteMapsUrl(stops);
+  banner.innerHTML = `
+    <div class="card" style="padding:16px 18px;margin-bottom:14px;">
+      <div class="row-between" style="flex-wrap:wrap;gap:10px;">
+        <span><b>${stops.length}</b> stop${stops.length === 1 ? "" : "s"} left · delivering ${esc(formatWeeklyDate(stops[0].weekly_delivery_date))}</span>
+        ${mapsUrl ? `<a class="btn btn-primary btn-sm" href="${mapsUrl}" target="_blank" rel="noopener">🗺️ Navigate full route</a>` : ""}
+      </div>
+    </div>`;
+  // Same per-stop action template the active list below uses (Picked
+  // up/On the way + the OTP entry) — a weekly stop is worked exactly like
+  // any other assigned order, just pre-sequenced instead of self-claimed.
+  list.innerHTML = stops
+    .map((o) => orderCard(o, `
+      ${o.status !== "out for delivery"
+        ? `<button class="btn btn-outline btn-sm" onclick="markPickedUp(${o.id}, this)">📦 Picked up</button>`
+        : `<span class="badge badge-lime" style="align-self:center;">On the way</span>`}
+      <div class="otp-entry">
+        <label for="otp-${o.id}">Ask the customer for their 4-digit delivery code</label>
+        <div class="otp-entry-row">
+          <input type="text" id="otp-${o.id}" inputmode="numeric" maxlength="4" placeholder="0000"
+                 onkeydown="if(event.key==='Enter')markDelivered(${o.id}, this.parentElement.querySelector('button'))">
+          <button class="btn btn-primary btn-sm" onclick="markDelivered(${o.id}, this)">✓ Complete delivery</button>
+        </div>
+      </div>`))
+    .join("");
 }
 
 let lastAvailableCount = 0;
@@ -430,13 +501,18 @@ async function refresh(manual) {
 
     // This list re-renders every 10 seconds. Without carrying the typed
     // digits (and the focus) across the re-render, a driver mid-way through
-    // entering a code would watch it vanish under them.
+    // entering a code would watch it vanish under them. Scoped to the whole
+    // document, not just #activeList, since OTP inputs now also live under
+    // #weeklyRouteList — order ids (and so these element ids) are unique
+    // across both lists.
     const typedOtps = {};
     let focusedOtpId = null;
-    document.querySelectorAll("#activeList input[id^='otp-']").forEach((el) => {
+    document.querySelectorAll("input[id^='otp-']").forEach((el) => {
       if (el.value) typedOtps[el.id] = el.value;
       if (document.activeElement === el) focusedOtpId = el.id;
     });
+
+    renderWeeklyRoute(summary.weeklyStops || []);
 
     document.getElementById("activeList").innerHTML = summary.active.length
       ? summary.active

@@ -111,6 +111,24 @@ db.exec(`
     status TEXT DEFAULT 'pending',
     created_at TEXT DEFAULT (datetime('now'))
   );
+
+  /* One row per weekly grocery cycle the owner opens. status walks
+     open -> closed -> routed: open while customers can still submit their
+     list, closed once the owner cuts submissions off (or the cutoff time
+     passes), routed once "Assign Routes" has split that cycle's orders
+     across drivers. Only ever one row in ('open','closed') at a time —
+     enforced in server.js, the same way a single default address is
+     enforced there rather than in the schema. */
+  CREATE TABLE IF NOT EXISTS weekly_windows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cutoff_at TEXT NOT NULL,
+    delivery_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    max_per_driver INTEGER,
+    created_at TEXT DEFAULT (datetime('now')),
+    closed_at TEXT,
+    routed_at TEXT
+  );
 `);
 
 // Safe migrations for a warpx.db created before these columns existed.
@@ -120,7 +138,7 @@ for (const col of ["password_hash TEXT", "password_salt TEXT", "email TEXT", "go
 for (const col of ["google_sub TEXT", "email TEXT"]) {
   try { db.exec(`ALTER TABLE drivers ADD COLUMN ${col}`); } catch (e) {}
 }
-for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)", "delivery_otp TEXT", "address_label TEXT", "scheduled_for TEXT", "delivered_at TEXT"]) {
+for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)", "delivery_otp TEXT", "address_label TEXT", "scheduled_for TEXT", "delivered_at TEXT", "weekly_window_id INTEGER REFERENCES weekly_windows(id)", "route_position INTEGER"]) {
   try { db.exec(`ALTER TABLE orders ADD COLUMN ${col}`); } catch (e) {}
 }
 
@@ -128,6 +146,7 @@ for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL
 // predates the column it indexes.
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_orders_driver_id ON orders(driver_id)"); } catch (e) {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_orders_scheduled_for ON orders(scheduled_for)"); } catch (e) {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_orders_weekly_window_id ON orders(weekly_window_id)"); } catch (e) {}
 // The daily tier count filters on this every time a driver page refreshes.
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_orders_delivered_at ON orders(delivered_at)"); } catch (e) {}
 

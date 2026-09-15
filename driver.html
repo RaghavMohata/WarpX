@@ -220,12 +220,6 @@
 <script>
 const DRIVER_KEY = "warpx_driver";
 
-// Where a driver collects a food order from — shown and routed to only in
-// this driver-facing hub, never on any customer-facing page. Other services
-// (grocery/medicine/laundry/anything) have no single fixed pickup point yet,
-// so this only applies when an order includes a food item.
-const PICASSO_ADDRESS = "Beside Gold Cinema, Churhe Bada, Brahmapuri, Maharashtra";
-
 function esc(str) {
   const div = document.createElement("div");
   div.textContent = str ?? "";
@@ -382,12 +376,14 @@ function renderProgress(p) {
 
 function orderCard(o, action) {
   const items = o.items.map((it) => `${it.qty} × ${esc(it.name)}`).join(", ");
-  // A food item means this order is collected from Picasso first — route the
-  // driver there as a waypoint (leaving origin blank makes Google Maps use
-  // wherever the driver is standing right now), then on to the customer.
-  const isPickup = o.items.some((it) => it.service === "food");
+  // pickupAddress comes from the server (server.js's pickupAddressFor) — set
+  // only when the order includes a food item, meaning it's collected from
+  // Picasso first. Route the driver there as a waypoint (leaving origin blank
+  // makes Google Maps use wherever the driver is standing right now), then
+  // on to the customer.
+  const isPickup = !!o.pickupAddress;
   const maps = o.lat != null && o.lng != null
-    ? `<a class="btn btn-outline btn-sm" href="https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}${isPickup ? `&waypoints=${encodeURIComponent(PICASSO_ADDRESS)}` : ""}" target="_blank" rel="noopener">📍 Navigate${isPickup ? " (via pickup)" : ""}</a>`
+    ? `<a class="btn btn-outline btn-sm" href="https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}${isPickup ? `&waypoints=${encodeURIComponent(o.pickupAddress)}` : ""}" target="_blank" rel="noopener">📍 Navigate${isPickup ? " (via pickup)" : ""}</a>`
     : "";
   return `
     <div class="card job">
@@ -404,7 +400,7 @@ function orderCard(o, action) {
         </div>
       </div>
       <div class="job-items">${items}</div>
-      ${isPickup ? `<div class="text-muted" style="font-size:.82rem;">🏪 <b>Pickup:</b> ${esc(PICASSO_ADDRESS)}</div>` : ""}
+      ${isPickup ? `<div class="text-muted" style="font-size:.82rem;">🏪 <b>Pickup:</b> ${esc(o.pickupAddress)}</div>` : ""}
       <div class="text-muted" style="font-size:.82rem;">${o.scheduled_for ? `<span class="sched-tag">🗓️ ${esc(formatSchedule(o.scheduled_for))}</span> · ` : ""}${o.address_label ? "<b>" + esc(o.address_label) + "</b> · " : ""}${isPickup ? "🚪 <b>Drop-off:</b> " : ""}${esc(o.address) || "No landmark note given"}</div>
       <div class="job-actions">${maps}${action}</div>
     </div>`;

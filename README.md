@@ -157,12 +157,15 @@ None of these need guesswork to fix — they need real accounts, a real push/SMS
   "deliveryFee": 40,
   "total": 90,
   "paymentMethod": "cod",
+  "pickupAddress": "Beside Gold Cinema, Churhe Bada, Brahmapuri, Maharashtra",
   "address": "23.268,77.415 area, Bhopal",
   "addressLabel": "Home",
   "etaMin": "20-30",
   "scheduledFor": null
 }
 ```
+`pickupAddress` is Picasso's own address, set by `pickupAddressFor()` in `server.js` (same helper `driver.html` uses) whenever the order includes a food item — `null` for grocery/medicine/laundry/anything, since those have no single fixed pickup point yet. It's meant for the delivery-partner message only; leave it out of whatever gets sent to the restaurant owner's own chat, since Picasso obviously doesn't need directions to itself.
+
 The customer's delivery OTP is deliberately never included — the same rule `withoutOtp()` enforces everywhere else in this codebase (see "Delivery codes" above) applies here too: it exists to prove a real handover happened, so it must never travel anywhere but the customer's own screen.
 
 **On reachability, tying back to the reverse-proxy section above:** this call is *outbound* — WarpX (or n8n) reaching out to Telegram/WhatsApp's own servers — so it works over a normal home connection with no port forwarding, and isn't affected by CGNAT the way accepting inbound connections is. The one place that matters is getting a *reply* from a partner: rather than a Telegram webhook (which would need a public HTTPS endpoint pointed at this Mac), have the n8n workflow poll Telegram's `getUpdates` on a Schedule-trigger node every few seconds instead. That keeps the entire loop outbound-only in both directions.

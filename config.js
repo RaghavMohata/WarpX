@@ -22,4 +22,10 @@ module.exports = {
      notifications it sends, are documented under "n8n order automation" in
      README.md. */
   N8N_WEBHOOK_URL: "",
+
+  /* Where a driver collects a food order from. Attached to an order (in the
+     driver hub and the n8n webhook) only when it includes a food item —
+     other services have no single fixed pickup point yet. Never sent to any
+     customer-facing page. */
+  PICASSO_ADDRESS: "Beside Gold Cinema, Churhe Bada, Brahmapuri, Maharashtra",
 };

@@ -39,6 +39,14 @@ function withoutOtp(order) {
   return rest;
 }
 
+// A food item means this order is collected from Picasso first — surfaced to
+// drivers (job board, active list) and to n8n's delivery-partner notification.
+// Never attached to anything a customer sees. Other services have no single
+// fixed pickup point yet, so this is null for them.
+function pickupAddressFor(items) {
+  return items.some((it) => it.service === "food") ? config.PICASSO_ADDRESS : null;
+}
+
 /* Tells n8n an order just came in, so it can message the restaurant owner
    and delivery partners (Telegram/WhatsApp) even when nobody has admin.html
    or driver.html open to see the in-browser alert. Fire-and-forget: n8n
@@ -493,6 +501,7 @@ app.post("/api/orders", (req, res) => {
     deliveryFee,
     total,
     paymentMethod: method,
+    pickupAddress: pickupAddressFor(priced),
     address: loc ? loc.address : null,
     addressLabel: chosenAddress ? chosenAddress.label : null,
     etaMin,
@@ -536,7 +545,10 @@ app.get("/api/orders/available", (req, res) => {
      Showing a 7pm delivery at 10am invites a driver to claim it and then sit
      on it, which looks like progress while nothing is actually moving. */
   const due = orders.filter((o) => isDueForDispatch(o.scheduled_for));
-  res.json(due.map((o) => ({ ...withoutOtp(o), items: itemsStmt.all(o.id) })));
+  res.json(due.map((o) => {
+    const items = itemsStmt.all(o.id);
+    return { ...withoutOtp(o), items, pickupAddress: pickupAddressFor(items) };
+  }));
 });
 
 // Order history for a single user.
@@ -850,7 +862,10 @@ app.get("/api/drivers/:id/summary", (req, res) => {
     basePerDelivery: BASE_PAY_PER_DELIVERY,
     lifetimeDeliveries: stats.lifetime,
     resetsInSeconds: secondsUntilReset(),
-    active: active.map((o) => ({ ...withoutOtp(o), items: itemsStmt.all(o.id) })),
+    active: active.map((o) => {
+      const items = itemsStmt.all(o.id);
+      return { ...withoutOtp(o), items, pickupAddress: pickupAddressFor(items) };
+    }),
   });
 });
 

@@ -223,6 +223,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="lib/schedule.js"></script>
+<script src="lib/weekly.js"></script>
 <script src="js/google-auth.js"></script>
 <script>
 const DRIVER_KEY = "warpx_driver";
@@ -413,19 +414,11 @@ function orderCard(o, action) {
     </div>`;
 }
 
-/* One combined Google Maps link for a driver's whole remaining weekly route
-   — chains every stop's lat/lng as waypoints, in route_position order, so
-   tapping one link routes stop-to-stop instead of opening each separately.
-   Google's free `dir` URL caps out around 9-10 waypoints in some Maps
-   clients; a very large max-per-driver could truncate this combined link,
-   but the per-stop Navigate button on each card below is unaffected either
-   way — see README "Known limitations". */
-function formatWeeklyDate(dateStr) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
-  if (!m) return dateStr || "";
-  return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
-}
-
+/* One combined Google Maps link for a day's route — chains every stop's
+   lat/lng as waypoints, in route_position order, so tapping one link routes
+   stop-to-stop instead of opening each separately. Built per day rather than
+   per week, which keeps it well under Google's ~9-10 waypoint ceiling for a
+   normal day's load; the per-stop Navigate button is unaffected regardless. */
 function weeklyRouteMapsUrl(stops) {
   const located = stops.filter((s) => s.lat != null && s.lng != null);
   if (!located.length) return null;
@@ -438,6 +431,36 @@ function weeklyRouteMapsUrl(stops) {
   return url.toString();
 }
 
+// Same per-stop actions the ordinary active list uses — a weekly stop is
+// worked exactly like any other assigned order, just pre-sequenced instead of
+// self-claimed off the board.
+function weeklyStopCard(o) {
+  return orderCard(o, `
+    ${o.status !== "out for delivery"
+      ? `<button class="btn btn-outline btn-sm" onclick="markPickedUp(${o.id}, this)">📦 Picked up</button>`
+      : `<span class="badge badge-lime" style="align-self:center;">On the way</span>`}
+    <div class="otp-entry">
+      <label for="otp-${o.id}">Ask the customer for their 4-digit delivery code</label>
+      <div class="otp-entry-row">
+        <input type="text" id="otp-${o.id}" inputmode="numeric" maxlength="4" placeholder="0000"
+               onkeydown="if(event.key==='Enter')markDelivered(${o.id}, this.parentElement.querySelector('button'))">
+        <button class="btn btn-primary btn-sm" onclick="markDelivered(${o.id}, this)">✓ Complete delivery</button>
+      </div>
+    </div>`);
+}
+
+let expandedWeeklyDays = new Set();
+
+function toggleWeeklyDay(date) {
+  if (expandedWeeklyDays.has(date)) expandedWeeklyDays.delete(date);
+  else expandedWeeklyDays.add(date);
+  refresh();
+}
+
+/* A driver's assigned vegetable stops, grouped by the day they're due. Today
+   opens expanded; later days collapse to one line, because somebody working
+   Monday shouldn't have to scroll past Friday's delivery-code boxes to reach
+   their next stop. */
 function renderWeeklyRoute(stops) {
   const head = document.getElementById("weeklyRouteHead");
   const banner = document.getElementById("weeklyRouteBanner");
@@ -449,32 +472,47 @@ function renderWeeklyRoute(stops) {
     return;
   }
   head.style.display = "flex";
-  banner.style.display = "block";
-  const mapsUrl = weeklyRouteMapsUrl(stops);
-  banner.innerHTML = `
-    <div class="card" style="padding:16px 18px;margin-bottom:14px;">
-      <div class="row-between" style="flex-wrap:wrap;gap:10px;">
-        <span><b>${stops.length}</b> stop${stops.length === 1 ? "" : "s"} left · delivering ${esc(formatWeeklyDate(stops[0].weekly_delivery_date))}</span>
-        ${mapsUrl ? `<a class="btn btn-primary btn-sm" href="${mapsUrl}" target="_blank" rel="noopener">🗺️ Navigate full route</a>` : ""}
-      </div>
-    </div>`;
-  // Same per-stop action template the active list below uses (Picked
-  // up/On the way + the OTP entry) — a weekly stop is worked exactly like
-  // any other assigned order, just pre-sequenced instead of self-claimed.
-  list.innerHTML = stops
-    .map((o) => orderCard(o, `
-      ${o.status !== "out for delivery"
-        ? `<button class="btn btn-outline btn-sm" onclick="markPickedUp(${o.id}, this)">📦 Picked up</button>`
-        : `<span class="badge badge-lime" style="align-self:center;">On the way</span>`}
-      <div class="otp-entry">
-        <label for="otp-${o.id}">Ask the customer for their 4-digit delivery code</label>
-        <div class="otp-entry-row">
-          <input type="text" id="otp-${o.id}" inputmode="numeric" maxlength="4" placeholder="0000"
-                 onkeydown="if(event.key==='Enter')markDelivered(${o.id}, this.parentElement.querySelector('button'))">
-          <button class="btn btn-primary btn-sm" onclick="markDelivered(${o.id}, this)">✓ Complete delivery</button>
+  banner.style.display = "none"; // each day carries its own header instead
+
+  const byDate = new Map();
+  for (const stop of stops) {
+    const date = String(stop.scheduled_for || "").slice(0, 10);
+    if (!byDate.has(date)) byDate.set(date, []);
+    byDate.get(date).push(stop);
+  }
+
+  const p2 = (n) => String(n).padStart(2, "0");
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())}`;
+  /* Today's work opens by default. On a day with nothing due — the evening
+     before a round, say — the soonest day opens instead, so the page never
+     greets a driver with nothing but collapsed headers. */
+  const dates = [...byDate.keys()];
+  const defaultOpen = dates.includes(todayStr) ? todayStr : dates[0];
+
+  list.innerHTML = [...byDate.entries()].map(([date, dayStops]) => {
+    const isToday = date === todayStr;
+    const open = date === defaultOpen || expandedWeeklyDays.has(date);
+    const mapsUrl = weeklyRouteMapsUrl(dayStops);
+    const label = isToday ? `Today · ${formatDayDate(date)}` : formatDayDate(date);
+
+    return `
+      <div style="margin-bottom:18px;">
+        <div class="card" style="padding:14px 18px;margin-bottom:${open ? "12px" : "0"};${isToday ? "border-color:var(--violet);" : ""}">
+          <div class="row-between" style="flex-wrap:wrap;gap:10px;">
+            <span>
+              <b>${esc(label)}</b>
+              <span class="text-muted"> · ${dayStops.length} stop${dayStops.length === 1 ? "" : "s"}</span>
+            </span>
+            <span class="flex gap-8" style="flex-wrap:wrap;">
+              ${open && mapsUrl ? `<a class="btn btn-primary btn-sm" href="${mapsUrl}" target="_blank" rel="noopener">🗺️ Navigate full route</a>` : ""}
+              ${date === defaultOpen ? "" : `<button class="btn btn-ghost btn-sm" onclick="toggleWeeklyDay('${date}')">${open ? "Hide" : "Show"}</button>`}
+            </span>
+          </div>
         </div>
-      </div>`))
-    .join("");
+        ${open ? dayStops.map(weeklyStopCard).join("") : ""}
+      </div>`;
+  }).join("");
 }
 
 let lastAvailableCount = 0;

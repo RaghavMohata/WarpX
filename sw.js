@@ -10,17 +10,23 @@
    Everything else is cached so the app opens instantly and survives a dead
    patch of signal. */
 
-const VERSION = "warpx-v1";
+/* Bump VERSION whenever the shared JS changes shape. Pages are network-first
+   so HTML updates immediately, but scripts and styles are served cache-first
+   and only refreshed for the NEXT load — meaning without a bump, a returning
+   visitor runs one page-load of yesterday's JavaScript against today's API.
+   The activate handler below deletes every cache that isn't the current one,
+   so changing this line is the whole mechanism. */
+const VERSION = "warpx-v2";
 const SHELL_CACHE = `${VERSION}-shell`;
 
 const PRECACHE = [
-  "/", "/index.html", "/food.html", "/grocery.html", "/medicine.html",
+  "/", "/index.html", "/food.html", "/grocery.html", "/weekly.html", "/medicine.html",
   "/laundry.html", "/anything.html", "/login.html", "/orders.html",
   "/checkout.html", "/careers.html", "/driver.html", "/offline.html",
   "/css/style.css",
   "/js/cart.js", "/js/location.js", "/js/main.js", "/js/menu-data.js",
   "/js/addresses.js", "/js/pwa.js",
-  "/lib/fee.js", "/lib/schedule.js",
+  "/lib/fee.js", "/lib/schedule.js", "/lib/weekly.js",
   "/img/icon-192.png", "/img/icon-512.png", "/img/apple-touch-icon.png",
   "/manifest.webmanifest",
 ];

@@ -11,9 +11,34 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="WarpX">
 <meta name="mobile-web-app-capable" content="yes">
-<title>Weekly Grocery List | WarpX</title>
-<meta name="description" content="Submit your weekly grocery and vegetable list once — it's all delivered together on one day, routed straight across town instead of piecemeal.">
+<title>Fresh Veg, Planned | WarpX</title>
+<meta name="description" content="Plan your vegetables day by day — cauliflower Monday, tomatoes Wednesday — pick one delivery time for the week, and we bring them fresh each morning.">
 <link rel="stylesheet" href="css/style.css">
+<style>
+  .day-card{ margin-bottom:16px; }
+  .day-head{ display:flex; align-items:baseline; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+  .day-head h3{ margin:0; }
+  .day-head .day-date{ font-size:.85rem; color:var(--muted); }
+  .day-head .day-count{ margin-left:auto; font-size:.78rem; font-weight:700; color:var(--violet); }
+  .day-lines{ margin-top:12px; }
+  .day-line{ display:flex; align-items:center; gap:10px; padding:7px 0; border-top:1px solid var(--line); font-size:.9rem; }
+  .day-line-name{ flex:1; }
+  .day-empty{ font-size:.85rem; color:var(--muted); padding-top:10px; border-top:1px solid var(--line); }
+  .slot-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .slot-btn{
+    border:1.5px solid var(--line-strong); background:var(--surface); border-radius:var(--radius);
+    padding:14px 12px; cursor:pointer; text-align:left; font-weight:600; font-size:.95rem;
+  }
+  .slot-btn small{ display:block; font-weight:500; font-size:.76rem; color:var(--muted); margin-top:3px; }
+  .slot-btn.active{ border-color:var(--violet); background:var(--grad-warp-soft); }
+  .slot-btn:disabled{ opacity:.45; cursor:not-allowed; }
+  .plan-bar{
+    position:sticky; bottom:0; z-index:20; margin-top:24px; padding:16px 18px;
+    background:var(--surface); border:1.5px solid var(--line-strong); border-radius:var(--radius);
+    box-shadow:0 -6px 24px rgba(0,0,0,.07);
+  }
+  .plan-bar-row{ display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+</style>
 </head>
 <body>
 
@@ -24,15 +49,12 @@
       <a href="index.html">Home</a>
       <a href="food.html">Food</a>
       <a href="grocery.html">Grocery</a>
-      <a href="weekly.html">Weekly List</a>
+      <a href="weekly.html">Weekly Veg</a>
       <a href="medicine.html">Medicine</a>
       <a href="laundry.html">Laundry</a>
       <a href="anything.html">Anything Else</a>
     </div>
     <div class="nav-actions">
-      <button class="icon-btn" data-open-cart aria-label="Cart">
-        🛒<span class="cart-count" data-cart-count style="display:none;">0</span>
-      </button>
       <a href="login.html" class="btn btn-primary btn-sm">Login</a>
       <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">☰</button>
     </div>
@@ -41,24 +63,40 @@
 
 <header class="page-hero ph-grocery">
   <div class="container">
-    <span class="badge badge-lime" style="margin-bottom:12px;">🗓️ Weekly Grocery Round</span>
-    <h1 style="color:#fff;">This week's list</h1>
-    <p>Submit your grocery/vegetable list once — everyone's orders are delivered together on one day, sequenced into a straight route instead of scattered pickups.</p>
+    <span class="badge badge-lime" style="margin-bottom:12px;">🥬 Fresh Veg · Planned Weekly</span>
+    <h1 style="color:#fff;">Plan your week's vegetables</h1>
+    <p>Cauliflower on Monday, tomatoes on Wednesday — put what you want under each day, pick one delivery time for the whole week, and we'll bring it fresh each morning.</p>
   </div>
 </header>
 
 <section class="section">
-  <div class="container">
+  <div class="container" style="max-width:760px;">
+
     <div id="weeklyBanner" class="note-box" style="display:none;margin-bottom:24px;"></div>
-    <div id="weeklyClosedNotice" class="note-box" style="display:none;margin-bottom:24px;">
-      <div style="font-size:1.3rem;">😴</div>
-      <div>
-        <b>Nothing open right now</b>
-        <p>The weekly list isn't taking orders at the moment — check back once it opens again, or use <a href="grocery.html">regular grocery ordering</a> in the meantime.</p>
+
+    <div id="weeklyClosedNotice" class="card center" style="display:none;padding:48px 24px;margin-bottom:24px;">
+      <div style="font-size:2rem;margin-bottom:10px;">😴</div>
+      <h3>Next week isn't open yet</h3>
+      <p class="text-muted">We open the planner once a week. Check back soon — or use <a href="grocery.html">regular grocery ordering</a> if you need something today.</p>
+    </div>
+
+    <div id="plannerBody" style="display:none;">
+      <div id="weekGrid"></div>
+
+      <div class="card" style="padding:26px;margin-top:24px;">
+        <h3 style="margin-bottom:6px;">When should we bring them?</h3>
+        <p class="text-muted" style="font-size:.88rem;margin-bottom:16px;">One time that works for every delivery day. Slots fill up, so the ones already taken are greyed out.</p>
+        <div class="slot-grid" id="slotPicker"></div>
+      </div>
+
+      <div class="plan-bar" id="planBar">
+        <div class="plan-bar-row">
+          <div id="planSummary" class="text-muted" style="font-size:.9rem;">Nothing planned yet — add vegetables to a day above.</div>
+          <button class="btn btn-primary" id="planSubmitBtn" onclick="goToCheckout()" disabled>Review &amp; submit →</button>
+        </div>
       </div>
     </div>
 
-    <div id="weeklyCategories" style="display:none;"></div>
   </div>
 </section>
 
@@ -73,7 +111,7 @@
         <h4>Services</h4>
         <a href="food.html">Picasso Cafe</a>
         <a href="grocery.html">Grocery</a>
-        <a href="weekly.html">Weekly List</a>
+        <a href="weekly.html">Weekly Veg</a>
         <a href="medicine.html">Medicine</a>
         <a href="laundry.html">Laundry</a>
         <a href="anything.html">Anything Else</a>
@@ -89,7 +127,7 @@
       </div>
       <div>
         <h4>Delivery</h4>
-        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Delivery ₹20–₹40, by order size</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">One flat fee for the whole week</span>
         <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
       </div>
     </div>
@@ -101,92 +139,249 @@
 
 <script src="lib/fee.js"></script>
 <script src="lib/schedule.js"></script>
+<script src="lib/weekly.js"></script>
 <script src="js/cart.js"></script>
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
 <script>
-// A customer's weekly list lives in its own cart, entirely separate from
-// whatever they've added on grocery.html — set before anything else touches
-// the cart, so the drawer/badge injected by main.js render the right one.
+/* The week's plan lives in its own cart, separate from whatever's in the
+   normal grocery cart, and this page renders it day by day instead of through
+   the shared drawer — whose one-delivery footer can't describe a week. Both
+   are set before anything touches the cart. */
 setCartKey("warpx_weekly_cart");
+setCartDrawerEnabled(false);
 
-const GROCERY_CATEGORIES = [
-  { id: "veg", icon: "🥦", name: "Vegetables & Fruits", chips: ["Onion 1kg", "Tomato 1kg", "Potato 1kg", "Banana 1 dozen", "Apple 1kg", "Green Chilli 250g", "Coriander bunch"] },
-  { id: "grains", icon: "🌾", name: "Grains, Atta & Dals", chips: ["Wheat Atta 5kg", "Basmati Rice 1kg", "Toor Dal 1kg", "Moong Dal 1kg", "Sugar 1kg", "Salt 1kg"] },
-  { id: "dairy", icon: "🥛", name: "Dairy & Bakery", chips: ["Milk 1L", "Curd 400g", "Bread loaf", "Butter 100g", "Eggs 6 pc", "Paneer 200g"] },
-  { id: "daily", icon: "🧴", name: "Daily Needs & Household", chips: ["Dish Soap", "Detergent 1kg", "Toothpaste", "Soap Bar", "Tissue Roll", "Garbage Bags"] },
-  { id: "snacks", icon: "🍪", name: "Snacks & Beverages", chips: ["Biscuits pack", "Chips packet", "Tea 250g", "Coffee 100g", "Cold Drink 1L", "Namkeen 200g"] },
-  { id: "care", icon: "🧼", name: "Personal Care", chips: ["Shampoo bottle", "Face Wash", "Sanitary Pads", "Hand Sanitizer", "Razor"] },
+const VEG_CHIPS = [
+  "Cauliflower", "Tomato 1kg", "Onion 1kg", "Potato 1kg", "Brinjal 500g", "Lady Finger 500g",
+  "Spinach bunch", "Coriander bunch", "Green Chilli 250g", "Capsicum 250g", "Cabbage",
+  "Carrot 500g", "Bottle Gourd", "Green Peas 500g",
 ];
 
-let currentWeeklyWindow = null;
+let currentWindow = null;
+let selectedSlotId = null;
+let existingPlan = null;
+let lastWeekPlan = null;
 
-function renderWeeklyCategories() {
-  const wrap = document.getElementById("weeklyCategories");
-  wrap.innerHTML = GROCERY_CATEGORIES.map((cat) => `
-    <div class="category-block">
-      <div class="category-head">
-        <span class="category-emoji">${cat.icon}</span>
-        <h3 style="margin:0;">${cat.name}</h3>
-      </div>
-      <div class="chip-row" style="margin-bottom:16px;">
-        ${cat.chips.map((c) => `<button type="button" class="chip" onclick='quickAddWeekly(${JSON.stringify(c)}, ${JSON.stringify(cat.name)})'>+ ${c}</button>`).join("")}
-      </div>
-      <div class="input-row">
-        <input type="text" id="weekly-custom-${cat.id}" placeholder="Add your own item — e.g. 2kg Maggi noodles, a specific brand...">
-        <button class="btn btn-ghost" style="flex:0 0 auto;" onclick='addCustomWeekly(${JSON.stringify(cat.id)}, ${JSON.stringify(cat.name)})'>Add</button>
-      </div>
-    </div>
-  `).join("");
+/* ---- Rendering ---------------------------------------------------------- */
+
+function linesForDay(label) {
+  return getCart().filter((c) => c.note === label);
 }
 
-function quickAddWeekly(itemName, categoryName) {
-  addToCart({ service: "grocery", name: itemName, price: null, note: categoryName });
+function renderWeekGrid() {
+  const grid = document.getElementById("weekGrid");
+  grid.innerHTML = currentWindow.days.map((day) => {
+    const lines = linesForDay(day.label);
+    return `
+      <div class="card day-card" style="padding:22px 24px;">
+        <div class="day-head">
+          <h3>${esc(day.label)}</h3>
+          <span class="day-date">${esc(formatDayDate(day.date))}</span>
+          ${lines.length ? `<span class="day-count">${lines.length} item${lines.length === 1 ? "" : "s"}</span>` : ""}
+        </div>
+        <div class="chip-row" style="margin-bottom:14px;">
+          ${VEG_CHIPS.map((v) => `<button type="button" class="chip" onclick='addVeg(${JSON.stringify(v)}, ${day.index})'>+ ${esc(v)}</button>`).join("")}
+        </div>
+        <div class="input-row">
+          <input type="text" id="veg-custom-${day.index}" placeholder="Anything else for ${esc(day.label)} — e.g. 2kg drumsticks"
+                 onkeydown="if(event.key==='Enter')addCustomVeg(${day.index})">
+          <button class="btn btn-ghost" style="flex:0 0 auto;" onclick="addCustomVeg(${day.index})">Add</button>
+        </div>
+        <div class="day-lines">
+          ${lines.length ? lines.map((l) => `
+            <div class="day-line">
+              <span class="day-line-name">${esc(l.name)}</span>
+              <div class="stepper">
+                <button onclick="bumpQty('${l.id}',-1)">−</button>
+                <span>${l.qty}</span>
+                <button onclick="bumpQty('${l.id}',1)">+</button>
+              </div>
+              <button class="cart-line-remove" onclick="dropLine('${l.id}')" aria-label="Remove">✕</button>
+            </div>`).join("")
+            : `<div class="day-empty">Nothing for ${esc(day.label)} — tap a vegetable above if you want some.</div>`}
+        </div>
+      </div>`;
+  }).join("");
 }
 
-function addCustomWeekly(catId, categoryName) {
-  const input = document.getElementById("weekly-custom-" + catId);
+function renderSlots() {
+  document.getElementById("slotPicker").innerHTML = currentWindow.slots.map((s) => {
+    // Someone editing their own plan keeps their seat even in a full slot.
+    const mine = existingPlan && existingPlan.slotId === s.id;
+    const blocked = s.full && !mine;
+    const left = Math.max(0, s.capacity - s.taken);
+    return `
+      <button type="button" class="slot-btn ${selectedSlotId === s.id ? "active" : ""}"
+              ${blocked ? "disabled" : ""} onclick="pickSlot('${s.id}')">
+        ${esc(s.label)}
+        <small>${blocked ? "Full — try another time" : left <= 3 ? `Only ${left} left` : "Available"}</small>
+      </button>`;
+  }).join("");
+}
+
+function renderPlanSummary() {
+  const cart = getCart();
+  const days = currentWindow.days.filter((d) => cart.some((c) => c.note === d.label));
+  const summary = document.getElementById("planSummary");
+  const btn = document.getElementById("planSubmitBtn");
+
+  if (days.length === 0) {
+    summary.textContent = "Nothing planned yet — add vegetables to a day above.";
+    btn.disabled = true;
+    return;
+  }
+  const fee = weeklyPlanFee(days.length, days.map(() => 0));
+  const slot = currentWindow.slots.find((s) => s.id === selectedSlotId);
+  summary.innerHTML =
+    `<b>${days.length} delivery day${days.length === 1 ? "" : "s"}</b> · ${days.map((d) => d.label.slice(0, 3)).join(", ")}` +
+    (slot ? ` · ${esc(slot.label)}` : ` · <span style="color:var(--danger);">pick a delivery time</span>`) +
+    `<br><span style="font-size:.84rem;">Delivery ₹${fee.total} for the whole week · vegetables priced at the market</span>`;
+  btn.disabled = !selectedSlotId;
+}
+
+function renderAll() {
+  renderWeekGrid();
+  renderSlots();
+  renderPlanSummary();
+}
+
+/* ---- Actions ------------------------------------------------------------ */
+
+function addVeg(name, dayIndex) {
+  // The label comes from the window's own dates, so a week starting on any
+  // weekday tags its items correctly.
+  const label = currentWindow.days[dayIndex].label;
+  /* addToCart only merges duplicate lines when an item has a price, and veg
+     is priced at the market — so without this, tapping the same chip twice
+     would leave two identical lines sitting on the same day. */
+  const existing = getCart().find((c) => c.service === "grocery" && c.name === name && c.note === label);
+  if (existing) changeQty(existing.id, 1);
+  else addToCart({ service: "grocery", name, price: null, note: label });
+  renderAll();
+}
+
+// The cart's own helpers, plus a re-render — this page shows the lines itself
+// rather than through the shared drawer, so it has to repaint them.
+function bumpQty(id, delta) { changeQty(id, delta); renderAll(); }
+function dropLine(id) { removeFromCart(id); renderAll(); }
+
+/* Writes a whole set of days into the cart in one go. Used for prefilling —
+   going through addToCart would fire a toast per vegetable and pop the drawer
+   at page load, neither of which is something the customer did. */
+function fillCartFromDays(days) {
+  const lines = [];
+  for (const day of days) {
+    if (day.index == null) continue;
+    const label = currentWindow.days[day.index].label;
+    for (const item of day.items) {
+      lines.push({
+        id: "l" + Date.now() + Math.floor(Math.random() * 100000),
+        service: "grocery", name: item.name, price: null, qty: item.qty || 1, note: label,
+      });
+    }
+  }
+  saveCart(lines);
+}
+
+function addCustomVeg(dayIndex) {
+  const input = document.getElementById("veg-custom-" + dayIndex);
   const text = input.value.trim();
-  if (!text) return showToast("Type an item first.");
-  addToCart({ service: "grocery", name: text, price: null, note: categoryName });
+  if (!text) return showToast("Type what you need first.");
+  addVeg(text, dayIndex);
   input.value = "";
 }
 
-function formatWeeklyDate(dateStr) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
-  if (!m) return dateStr || "";
-  return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
+function pickSlot(slotId) {
+  selectedSlotId = slotId;
+  // Carried through the login redirect too — goToCheckout() encodes the whole
+  // destination, so signing in mid-plan doesn't lose the chosen time.
+  setCheckoutQuery(`?weekly=${currentWindow.id}&slot=${encodeURIComponent(slotId)}`);
+  renderSlots();
+  renderPlanSummary();
 }
 
-async function loadWeeklyWindow() {
-  try {
-    const res = await fetch("/api/weekly/current");
-    const data = await res.json();
-    currentWeeklyWindow = data.open ? data.window : null;
-  } catch (e) {
-    currentWeeklyWindow = null;
+function copyLastWeek() {
+  if (!lastWeekPlan) return;
+  fillCartFromDays(lastWeekPlan.days);
+  const stillOffered = currentWindow.slots.find((s) => s.id === lastWeekPlan.slotId && !s.full);
+  if (stillOffered) pickSlot(lastWeekPlan.slotId);
+  renderAll();
+  showToast("Copied last week — change anything you like before submitting.");
+}
+
+/* ---- Load --------------------------------------------------------------- */
+
+function esc(str) {
+  const div = document.createElement("div");
+  div.textContent = str ?? "";
+  return div.innerHTML;
+}
+
+/* A saved cart only means something against the week it was written for. It
+   won't match if it came from the old flat weekly list (its notes are grocery
+   categories, not days) or from a week that started on a different weekday.
+   Either way there's no day to file those lines under, so they're cleared once
+   with an explanation rather than silently dropped at checkout. */
+function dropStaleCart() {
+  const dayLabels = new Set(currentWindow.days.map((d) => d.label));
+  if (getCart().some((c) => !dayLabels.has(c.note))) {
+    clearCart();
+    showToast("This is a new week — start your plan again.");
   }
-  renderWeeklyState();
 }
 
-function renderWeeklyState() {
-  const open = !!currentWeeklyWindow;
+async function loadPlanner() {
+  let data;
+  try {
+    data = await (await fetch("/api/weekly/current")).json();
+  } catch (e) {
+    data = { open: false };
+  }
+
+  const open = !!data.open;
   document.getElementById("weeklyClosedNotice").style.display = open ? "none" : "block";
   document.getElementById("weeklyBanner").style.display = open ? "flex" : "none";
-  document.getElementById("weeklyCategories").style.display = open ? "block" : "none";
+  document.getElementById("plannerBody").style.display = open ? "block" : "none";
   if (!open) return;
 
+  currentWindow = data.window;
+  setCheckoutQuery(`?weekly=${currentWindow.id}`);
+  dropStaleCart(); // needs the week's real day labels, so it runs after the fetch
+
+  const user = getWarpxUser();
+  if (user && user.id) {
+    try {
+      const mine = await (await fetch(`/api/weekly/plans/mine?userId=${user.id}&windowId=${currentWindow.id}`)).json();
+      existingPlan = mine.plan;
+      lastWeekPlan = mine.lastWeek;
+    } catch (e) {}
+  }
+
+  if (existingPlan) {
+    // They've already booked this week: show them what they have rather than
+    // an empty page, since submitting cleared their cart.
+    if (getCart().length === 0) fillCartFromDays(existingPlan.days);
+    pickSlot(existingPlan.slotId);
+    document.getElementById("planSubmitBtn").textContent = "Update my week →";
+  }
+
+  const firstDay = currentWindow.days[0];
+  const lastDay = currentWindow.days[6];
   document.getElementById("weeklyBanner").innerHTML = `
     <div style="font-size:1.3rem;">🗓️</div>
     <div>
-      <b>Order by ${formatSchedule(currentWeeklyWindow.cutoffAt)} for delivery on ${formatWeeklyDate(currentWeeklyWindow.deliveryDate)}</b>
-      <p>Everyone's list is combined after the cutoff and routed to drivers straight across town — there's no time slot to pick, just get your list in before it closes.</p>
+      <b>${existingPlan ? "You've already planned this week" : "Plan by " + esc(formatSchedule(currentWindow.cutoffAt))}</b>
+      <p>Deliveries run ${esc(formatDayDate(firstDay.date))} to ${esc(formatDayDate(lastDay.date))}.
+      ${existingPlan
+        ? "Changes replace what you booked, and you'll get new delivery codes."
+        : "One flat delivery fee covers the whole week, however many days you pick."}
+      ${lastWeekPlan && !existingPlan ? `<br><button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="copyLastWeek()">↺ Copy last week's list</button>` : ""}</p>
     </div>`;
-  setCheckoutQuery("?weekly=" + currentWeeklyWindow.id);
+
+  renderAll();
 }
 
-renderWeeklyCategories();
-loadWeeklyWindow();
+loadPlanner();
 </script>
 <script src="/js/pwa.js"></script>
 </body>

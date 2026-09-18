@@ -5,6 +5,24 @@ const path = require("path");
 
 const db = new DatabaseSync(path.join(__dirname, "warpx.db"));
 
+/* weekly_windows changed shape when the weekly list became a day-by-day
+   vegetable planner: a window is now a WEEK of delivery days, not one
+   delivery_date. Rows written under the old model describe a delivery that no
+   longer exists and can't be routed under the new one, so a database from
+   before the redesign starts that table clean rather than carrying a column
+   nobody reads. The orders themselves survive as ordinary orders — they just
+   stop belonging to a weekly window. Runs once: after the rebuild the new
+   table has week_start_date and the check below is false forever. */
+let needsWeeklyRebuild = false;
+try {
+  const cols = db.prepare("PRAGMA table_info(weekly_windows)").all();
+  needsWeeklyRebuild = cols.length > 0 && !cols.some((c) => c.name === "week_start_date");
+} catch (e) {}
+if (needsWeeklyRebuild) {
+  try { db.exec("UPDATE orders SET weekly_window_id = NULL, route_position = NULL WHERE weekly_window_id IS NOT NULL"); } catch (e) {}
+  try { db.exec("DROP TABLE weekly_windows"); } catch (e) {}
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,23 +130,43 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 
-  /* One row per weekly grocery cycle the owner opens. status walks
-     open -> closed -> routed: open while customers can still submit their
-     list, closed once the owner cuts submissions off (or the cutoff time
-     passes), routed once "Assign Routes" has split that cycle's orders
-     across drivers. Only ever one row in ('open','closed') at a time —
-     enforced in server.js, the same way a single default address is
-     enforced there rather than in the schema. */
+  /* One row per week of vegetable deliveries the owner opens. A window covers
+     seven delivery days: day N's date is week_start_date + N. status walks
+     open -> closed: open while customers can still plan their week, closed
+     once the owner cuts it off (or the cutoff time passes). There's no
+     'routed' state because routing happens a day at a time — a day is routed
+     when its orders have a driver_id, which is derived rather than stored.
+     Only one window is active at a time, enforced in server.js the same way a
+     single default address is. */
   CREATE TABLE IF NOT EXISTS weekly_windows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     cutoff_at TEXT NOT NULL,
-    delivery_date TEXT NOT NULL,
+    week_start_date TEXT NOT NULL,
+    slot_capacity INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'open',
     max_per_driver INTEGER,
     created_at TEXT DEFAULT (datetime('now')),
-    closed_at TEXT,
-    routed_at TEXT
+    closed_at TEXT
   );
+
+  /* One row per customer per week: which delivery slot they hold. The orders
+     it produced are found by (weekly_window_id, user_id), so orders carry no
+     plan id. This table earns its place three times over: the unique index
+     below is the duplicate-submission guard the old design lacked, counting
+     rows per slot_id is the capacity check, and it's what lets someone edit
+     their week before the cutoff instead of being stuck with their first
+     guess. */
+  CREATE TABLE IF NOT EXISTS weekly_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    window_id INTEGER NOT NULL REFERENCES weekly_windows(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    slot_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_plans_window_user ON weekly_plans(window_id, user_id);
+  CREATE INDEX IF NOT EXISTS idx_weekly_plans_window_slot ON weekly_plans(window_id, slot_id);
 `);
 
 // Safe migrations for a warpx.db created before these columns existed.

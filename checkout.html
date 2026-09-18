@@ -197,6 +197,7 @@
 
 <script src="lib/fee.js"></script>
 <script src="lib/schedule.js"></script>
+<script src="lib/weekly.js"></script>
 <script src="js/addresses.js"></script>
 <script src="js/cart.js"></script>
 <script src="js/location.js"></script>
@@ -208,32 +209,39 @@ function escapeAttr(str) {
   return div.innerHTML;
 }
 
-/* A weekly grocery checkout ("?weekly=<id>") uses its own cart key — set
-   before anything below ever calls getCart() — and skips the whole
-   ASAP/schedule timing system entirely, since a weekly order always lands on
-   that window's fixed delivery_date, never a time the customer picks. */
-const weeklyWindowId = new URLSearchParams(location.search).get("weekly");
+/* A weekly vegetable plan ("?weekly=<id>&slot=<slotId>") uses its own cart key
+   — set before anything below ever calls getCart() — and skips the whole
+   ASAP/schedule timing system, since every day of a plan lands at the slot the
+   customer already chose on the planner, not a time picked here. */
+const weeklyParams = new URLSearchParams(location.search);
+const weeklyWindowId = weeklyParams.get("weekly");
+const weeklySlotId = weeklyParams.get("slot");
 let weeklyWindowMeta = null;
 if (weeklyWindowId) setCartKey("warpx_weekly_cart");
 
-function formatWeeklyDate(dateStr) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
-  if (!m) return dateStr || "";
-  return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
+// The days this plan actually covers, in week order, each with its cart lines.
+function weeklyPlannedDays() {
+  if (!weeklyWindowMeta) return [];
+  const cart = getCart();
+  return weeklyWindowMeta.days
+    .map((day) => ({ ...day, lines: cart.filter((c) => c.note === day.label) }))
+    .filter((day) => day.lines.length > 0);
 }
 
-// Confirms the window is still the one open right now — it could have
-// closed between weekly.html and here — and swaps the timing card for a
-// static delivery-date line. Server-side validation in POST /api/orders
-// remains the real authority either way; this is just so nobody fills out
-// an entire checkout only to be refused on submit.
+/* Confirms the week is still open and the chosen slot still has room — either
+   could have changed between the planner and here. The server re-checks both
+   on submit; this only saves someone filling in a whole checkout to be
+   refused at the end. */
 async function applyWeeklyMode() {
-  const card = { line: document.getElementById("weeklyDeliveryLine") };
+  const line = document.getElementById("weeklyDeliveryLine");
+  let slotProblem = null;
   try {
-    const res = await fetch("/api/weekly/current");
-    const data = await res.json();
+    const data = await (await fetch("/api/weekly/current")).json();
     if (data.open && String(data.window.id) === String(weeklyWindowId)) {
       weeklyWindowMeta = data.window;
+      const slot = data.window.slots.find((s) => s.id === weeklySlotId);
+      if (!slot) slotProblem = "Pick a delivery time on the planner first.";
+      else if (slot.full) slotProblem = `The ${slot.label} slot filled up while you were deciding.`;
     }
   } catch (e) {
     // fall through with weeklyWindowMeta left null
@@ -243,16 +251,24 @@ async function applyWeeklyMode() {
   document.getElementById("timingSeg").style.display = "none";
   document.getElementById("schedulePanel").style.display = "none";
   document.getElementById("nowHint").style.display = "none";
-  card.line.style.display = "block";
+  line.style.display = "block";
 
-  if (weeklyWindowMeta) {
-    card.line.innerHTML = `<div class="sched-ok">🗓️ Delivered on <b>${escapeAttr(formatWeeklyDate(weeklyWindowMeta.deliveryDate))}</b> — this week's grocery round.</div>`;
-  } else {
-    card.line.innerHTML = `<div class="sched-bad">This week's grocery window has closed — your list wasn't submitted. <a href="weekly.html">Go back</a> to check when it opens again.</div>`;
+  const block = (msg) => {
+    line.innerHTML = `<div class="sched-bad">${escapeAttr(msg)} <a href="weekly.html">Back to the planner</a>.</div>`;
     const btn = document.getElementById("placeOrderBtn");
     btn.disabled = true;
-    btn.textContent = "This week's window is closed";
-  }
+    btn.textContent = "Can't submit this week";
+  };
+
+  if (!weeklyWindowMeta) return block("This week's planner has closed — your list wasn't submitted.");
+  if (slotProblem) return block(slotProblem);
+
+  const days = weeklyPlannedDays();
+  const slot = weeklyWindowMeta.slots.find((s) => s.id === weeklySlotId);
+  line.innerHTML = `<div class="sched-ok">🗓️ Delivered <b>${days.map((d) => escapeAttr(formatDayDate(d.date))).join(", ")}</b> — between <b>${escapeAttr(slot.label)}</b> each day.</div>`;
+  // The first paint ran before this resolved, so it used the ordinary
+  // single-order summary. Now that the week is known, redraw it properly.
+  renderCheckout();
 }
 
 let paymentMethod = "cod";
@@ -381,7 +397,36 @@ document.getElementById("paymentSeg").addEventListener("click", (e) => {
   document.getElementById("codHint").style.display = isUpi ? "none" : "block";
 });
 
+/* A week's plan is several deliveries, so it can't be summarised as one list
+   with one fee. Items are grouped under the day they're for, and the fee comes
+   from weeklyPlanFee() — the same call the server charges from, so the quote
+   and the bill can't drift. */
+function renderWeeklyCheckout() {
+  const days = weeklyPlannedDays();
+  document.getElementById("checkoutItems").innerHTML = days.map((day) => `
+    <div style="padding:10px 0;border-top:1px solid var(--line);">
+      <div style="font-weight:700;font-size:.88rem;margin-bottom:4px;">${escapeAttr(formatDayDate(day.date))}</div>
+      ${day.lines.map((c) => `
+        <div class="row-between" style="padding:3px 0;font-size:.92rem;">
+          <span>${c.qty} × ${escapeAttr(c.name)}</span>
+          <span class="text-muted">at the market</span>
+        </div>`).join("")}
+    </div>`).join("");
+
+  const fee = weeklyPlanFee(days.length, days.map(() => 0));
+  document.getElementById("checkoutSubtotal").textContent = "— vegetables priced at the market";
+  document.getElementById("checkoutFee").textContent = "₹" + fee.total;
+  // The "add ₹64 more and delivery drops" nudge is about one basket crossing a
+  // slab, which says nothing true about a week of unpriced vegetables.
+  document.getElementById("checkoutFeeNudge").innerHTML = fee.mode === "flat"
+    ? `<div class="fee-nudge fee-nudge-win">One flat fee covers all ${days.length} delivery day${days.length === 1 ? "" : "s"} 🎉</div>`
+    : `<div class="fee-nudge">${days.length} delivery day${days.length === 1 ? "" : "s"} × ₹${fee.perOrder[0]}</div>`;
+  document.getElementById("checkoutTotal").textContent = "₹" + fee.total + " + vegetables";
+  renderAddressList();
+}
+
 function renderCheckout() {
+  if (weeklyWindowId && weeklyWindowMeta) return renderWeeklyCheckout();
   const cart = getCart();
   const items = document.getElementById("checkoutItems");
   items.innerHTML = cart.map((c) => {
@@ -568,6 +613,87 @@ async function saveAddressInline(btn) {
   }
 }
 
+/* Submits the whole week in one request. The server creates one order per day
+   inside a single transaction, so a plan either lands complete or not at all —
+   which is why this can't just loop over POST /api/orders. */
+async function submitWeeklyPlan(btn, user, selectedAddr, upiId) {
+  const days = weeklyPlannedDays();
+  if (days.length === 0) return showToast("Add vegetables to at least one day first.");
+
+  const paymentLabel = paymentMethod === "upi"
+    ? `UPI${upiId ? " (" + upiId + ")" : ""} — demo, no real payment processed.`
+    : "Cash on delivery, each time we deliver.";
+
+  btn.disabled = true;
+  btn.textContent = "Booking your week...";
+  try {
+    const res = await fetch("/api/weekly/plans", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: user.id,
+        windowId: Number(weeklyWindowId),
+        slotId: weeklySlotId,
+        addressId: selectedAddr ? selectedAddr.id : undefined,
+        paymentMethod,
+        upiId: upiId || undefined,
+        // The day INDEX travels, never the label — the server derives its own
+        // labels so a browser in another language can't shift someone's week.
+        days: days.map((d) => ({ index: d.index, items: d.lines.map((l) => ({ name: l.name, qty: l.qty })) })),
+      }),
+    });
+    const data = await res.json();
+
+    if (res.status === 409 && (data.weeklyClosed || data.slotFull)) {
+      showToast(data.error);
+      applyWeeklyMode();
+      btn.disabled = false;
+      btn.textContent = "Place order at warp speed 🚀";
+      return;
+    }
+    if (!res.ok) {
+      showToast(data.error || "Could not book your week.");
+      if (res.status === 401) setTimeout(() => { window.location.href = "login.html?redirect=" + encodeURIComponent("checkout.html" + location.search); }, 1200);
+      btn.disabled = false;
+      btn.textContent = "Place order at warp speed 🚀";
+      return;
+    }
+
+    showWeeklyPlanModal(data, paymentLabel);
+    clearCart();
+  } catch (err) {
+    showToast("Couldn't reach the server — your week wasn't booked.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Place order at warp speed 🚀";
+  }
+}
+
+/* One handover code per delivery day, so all of them have to be on screen —
+   the shared single-order modal has room for exactly one. */
+function showWeeklyPlanModal(data, paymentLabel) {
+  const slot = weeklyWindowMeta && weeklyWindowMeta.slots.find((s) => s.id === weeklySlotId);
+  const modalBody = document.getElementById("modalBody");
+  if (modalBody) {
+    modalBody.innerHTML = `
+      <div class="modal-icon">✅</div>
+      <h3>Your week is booked</h3>
+      <p class="text-muted">${data.orders.length} delivery${data.orders.length === 1 ? "" : "s"}${slot ? `, between <b>${escapeAttr(slot.label)}</b> each day` : ""}. Keep these codes — the delivery partner asks for the day's code at handover.</p>
+      <div class="otp-box" style="text-align:left;">
+        ${data.orders.map((o) => `
+          <div class="row-between" style="padding:6px 0;font-size:.9rem;">
+            <span>${escapeAttr(formatDayDate(o.date))} <span class="text-muted">#${escapeAttr(o.orderNumber)}</span></span>
+            <b style="letter-spacing:.12em;">${escapeAttr(o.deliveryOtp)}</b>
+          </div>`).join("")}
+      </div>
+      <p class="text-muted" style="font-size:.85rem;">Delivery ₹${data.fee.total} for the week. ${escapeAttr(paymentLabel)} Vegetables are priced at the market and confirmed on the day. Saved to your order history.</p>
+      <a href="orders.html" class="btn btn-ghost btn-block" style="margin-bottom:10px;">View my orders</a>
+      <button class="btn btn-primary btn-block" onclick="closeModal()">Done</button>
+    `;
+  }
+  document.getElementById("orderModal")?.classList.add("open");
+}
+
 async function submitOrder(btn) {
   const cart = getCart();
   if (cart.length === 0) return showToast("Your cart is empty.");
@@ -579,13 +705,16 @@ async function submitOrder(btn) {
 
   const selectedAddr = resolveSelectedAddress(addressBook);
 
-  if (weeklyWindowId && !weeklyWindowMeta) return showToast("This week's grocery window has closed.");
+  const upiIdEarly = document.getElementById("upiId").value.trim();
+  if (weeklyWindowId) {
+    if (!weeklyWindowMeta) return showToast("This week's planner has closed.");
+    return submitWeeklyPlan(btn, user, selectedAddr, upiIdEarly);
+  }
 
   // Re-check here rather than trusting the panel's last render: someone can
   // switch to "Schedule it" and hit Place order without touching the inputs.
-  // Skipped entirely for a weekly order — it never has a customer-picked time.
   let schedule = null;
-  if (!weeklyWindowId && orderTiming === "later") {
+  if (orderTiming === "later") {
     const check = renderScheduleHint();
     if (!check.ok) return showToast(check.error);
     schedule = { scheduleDate: document.getElementById("scheduleDate").value, scheduleTime: document.getElementById("scheduleTime").value };
@@ -605,7 +734,7 @@ async function submitOrder(btn) {
       body: JSON.stringify({
         userId: user.id, items: cart, paymentMethod, upiId: upiId || undefined,
         addressId: selectedAddr ? selectedAddr.id : undefined,
-        ...(weeklyWindowId ? { weeklyWindowId: Number(weeklyWindowId) } : (schedule || {})),
+        ...(schedule || {}),
       }),
     });
     const data = await res.json();
@@ -616,19 +745,12 @@ async function submitOrder(btn) {
       btn.textContent = "Place order at warp speed 🚀";
       return;
     }
-    if (res.status === 409 && data.weeklyClosed) {
-      applyWeeklyMode();
-      showToast(data.error);
-      btn.disabled = false;
-      return;
-    }
     if (!res.ok) {
       showToast(data.error || "Could not place order.");
       if (res.status === 401) setTimeout(() => { window.location.href = "login.html?redirect=checkout.html"; }, 1200);
       return;
     }
-    const weeklyLabel = weeklyWindowMeta ? formatWeeklyDate(weeklyWindowMeta.deliveryDate) : null;
-    showOrderModal(data.orderNumber, `${data.etaMin} min`, true, paymentLabel, data.deliveryOtp, data.scheduledFor, weeklyLabel);
+    showOrderModal(data.orderNumber, `${data.etaMin} min`, true, paymentLabel, data.deliveryOtp, data.scheduledFor);
     clearCart();
   } catch (err) {
     // No backend reachable — keep the demo usable with a local-only order.

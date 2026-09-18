@@ -31,6 +31,13 @@ module.exports = {
      workflows. Leave it empty and nothing changes. */
   N8N_STATUS_WEBHOOK_URL: "",
 
+  /* How many customers can hold the same weekly delivery slot (e.g. 8 – 10
+     am). Once a slot has this many, it greys out on weekly.html and the next
+     person picks another — that's what keeps a day's deliveries matched to
+     how many drivers are actually working. The owner can override it per week
+     when opening the window; this is just the number that box starts on. */
+  WEEKLY_SLOT_CAPACITY: 12,
+
   /* Where a driver collects a food order from. Attached to an order (in the
      driver hub and the n8n webhook) only when it includes a food item —
      other services have no single fixed pickup point yet. Never sent to any

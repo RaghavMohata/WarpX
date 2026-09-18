@@ -13,6 +13,13 @@ function setCartKey(key) { CART_KEY = key; }
 let checkoutQuery = "";
 function setCheckoutQuery(q) { checkoutQuery = q; }
 
+// weekly.html lays its items out under the day they're for and prices a whole
+// week at once, so the shared drawer — which can only describe one delivery —
+// would contradict it. That page turns the drawer off; everywhere else it
+// pops open on every add, exactly as before.
+let cartDrawerEnabled = true;
+function setCartDrawerEnabled(on) { cartDrawerEnabled = on; }
+
 function getCart() {
   try { return JSON.parse(localStorage.getItem(CART_KEY)) || []; }
   catch (e) { return []; }
@@ -43,7 +50,7 @@ function addToCart(item) {
   }
   saveCart(cart);
   showToast(`Added "${item.name}" to your order ⚡`);
-  openDrawer();
+  if (cartDrawerEnabled) openDrawer();
 }
 
 function removeFromCart(id) {
@@ -187,15 +194,13 @@ function getWarpxUser() {
   catch (e) { return null; }
 }
 
-function showOrderModal(orderNumber, eta, persisted, paymentLabel, deliveryOtp, scheduledFor, weeklyDeliveryLabel) {
+function showOrderModal(orderNumber, eta, persisted, paymentLabel, deliveryOtp, scheduledFor) {
   const modalBody = document.getElementById("modalBody");
   if (modalBody) {
     modalBody.innerHTML = `
       <div class="modal-icon">✅</div>
       <h3>Order placed!</h3>
-      <p class="text-muted">${weeklyDeliveryLabel
-        ? `Order <b>#${orderNumber}</b> is booked in for this week's grocery round. We'll have it with you on <b>${weeklyDeliveryLabel}</b>.`
-        : scheduledFor
+      <p class="text-muted">${scheduledFor
         ? `Order <b>#${orderNumber}</b> is booked in. We'll have it with you <b>${formatSchedule(scheduledFor)}</b>.`
         : `Order <b>#${orderNumber}</b> is being prepped. At warp speed, expect it in about <b>${eta}</b>.`}</p>
       ${deliveryOtp ? `

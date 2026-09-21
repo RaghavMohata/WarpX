@@ -23,13 +23,13 @@ const PICASSO_MENU = [
     category: "Mocktails",
     icon: "🍹",
     items: [
-      { name: "Pina Colada", price: 134, note: "Takes you into the tropical islands" },
-      { name: "Virgin Mojito", price: 134, note: "Lemon, mint and fizz in a cup" },
-      { name: "Peachy Melon Sunset", price: 144, note: "Sweet peach and melon with a refreshing finish" },
+      { name: "Pina Colada", price: 134, note: "Takes you into the tropical islands", img: "img/menu/pina-colada.jpg" },
+      { name: "Virgin Mojito", price: 134, note: "Lemon, mint and fizz in a cup", img: "img/menu/virgin-mojito.jpg" },
+      { name: "Peachy Melon Sunset", price: 144, note: "Sweet peach and melon with a refreshing finish", img: "img/menu/peachy-melon-sunset.jpg" },
       { name: "Peach Mojito", price: 144, note: "Fruity and minty went for a walk" },
-      { name: "Bubble Berrygum", price: 144, note: "Refreshment with a chewing-gum taste" },
-      { name: "Chilli Guava Thunder", price: 154, tag: "Hot Pick", note: "Guava with a bold chilli kick" },
-      { name: "Spicy Mango Smash", price: 154, note: "Kachha aam, throughout the year" },
+      { name: "Bubble Berrygum", price: 144, note: "Refreshment with a chewing-gum taste", img: "img/menu/bubble-berrygum.jpg" },
+      { name: "Chilli Guava Thunder", price: 154, tag: "Hot Pick", note: "Guava with a bold chilli kick", img: "img/menu/chilli-guava-thunder.jpg" },
+      { name: "Spicy Mango Smash", price: 154, note: "Kachha aam, throughout the year", img: "img/menu/spicy-mango-smash.jpg" },
     ],
   },
   {
@@ -37,9 +37,9 @@ const PICASSO_MENU = [
     icon: "🍟",
     items: [
       { name: "Chana Jor Twist", price: 84, moq: 2, note: "Chana got a little too chatty" },
-      { name: "Choco Beast Toast", price: 114, tag: "Dessert" },
-      { name: "Cheese Bread Pizza", price: 144 },
-      { name: "Cheese Nachos", price: 154, tag: "Picasso's Signature" },
+      { name: "Choco Beast Toast", price: 114, tag: "Dessert", img: "img/menu/choco-beast-toast.jpg" },
+      { name: "Cheese Bread Pizza", price: 144, img: "img/menu/cheese-bread-pizza.jpg" },
+      { name: "Cheese Nachos", price: 154, tag: "Picasso's Signature", img: "img/menu/cheese-nachos.jpg" },
     ],
   },
   {

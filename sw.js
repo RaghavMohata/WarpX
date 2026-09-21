@@ -16,7 +16,7 @@
    visitor runs one page-load of yesterday's JavaScript against today's API.
    The activate handler below deletes every cache that isn't the current one,
    so changing this line is the whole mechanism. */
-const VERSION = "warpx-v5";
+const VERSION = "warpx-v6";
 const SHELL_CACHE = `${VERSION}-shell`;
 
 const PRECACHE = [

@@ -57,7 +57,7 @@ python3 -m http.server 8080
 | `checkout.html` | Order summary, delivery address confirmation, and payment method — see below |
 | `orders.html` | Order history for the logged-in user, read live from the database |
 | `careers.html` | **Work With Us** — delivery driver registration, see below |
-| `driver.html` | **Driver Hub** — a driver's own dashboard: progress bar, available orders, active deliveries |
+| `driver.html` | **Driver Hub** — a driver's own dashboard, in three tabs: their deliveries, the new-orders board, and their earnings |
 | `admin.html` | **Owner dashboard** — see below |
 
 Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page navigation before checkout. Once you log in or place an order, that data is also written to `warpx.db` via the API in `server.js` — `localStorage` is now just a client-side cache (and the offline fallback), not the source of truth.
@@ -81,7 +81,7 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `PATCH /api/drivers/:id/status` | Approve/reject an application (`pending` / `approved` / `rejected`) |
 | `POST /api/drivers/login` | Driver sign-in by phone — only approved drivers get in (pending/rejected get told why) |
 | `GET /api/drivers/:id/summary` | One driver's progress tier plus the orders they're currently carrying |
-| `GET /api/orders/available` | Orders no driver has claimed yet — the Driver Hub's job board |
+| `GET /api/orders/available` | Orders no driver has claimed yet, newest first — the Driver Hub's job board |
 | `PATCH /api/orders/:id/claim` | A driver claims an unassigned order (rejects if someone else got there first) |
 | `PATCH /api/orders/:id/deliver` | A driver completes their own order — requires the customer's 4-digit delivery code, and is what advances the progress bar |
 
@@ -214,6 +214,18 @@ Applications land in the **Drivers** tab of `admin.html`, filterable by status (
 
 Once you approve someone in the admin dashboard, they can sign in at `driver.html` with the phone number they applied with, and get their own dashboard — separate from the customer site and from your owner dashboard.
 
+**It is laid out as three tabs**, because one scrolling page put four cards of earnings detail in front of a driver before they could see a single job:
+
+| Tab | What is on it |
+| --- | --- |
+| 🚴 **Deliveries** | This week's grocery route and the jobs this driver has claimed, with the delivery-code entry. Opens here by default. |
+| 🆕 **New** | The unclaimed job board, newest order first. |
+| 💰 **Earnings** | The tier bar, today's pay, the "How is this worked out?" table, and the full payout history. |
+
+Above the tabs, a slim strip stays pinned under the nav on every tab: **earned today · delivered · your rate**, with the tier bar underneath. Tapping it jumps to Earnings. Each tab carries a live count, so a driver working their deliveries still sees new orders arriving.
+
+The two job lists are shown and hidden, never rebuilt — a half-typed delivery code survives both a tab switch and the 10-second refresh, because the input element itself is never thrown away. The tab a driver was last on is remembered across reloads.
+
 **The progress bar is a daily target.** It counts deliveries completed since local midnight and resets every night — that reset is what makes a 25-delivery ladder mean anything. As a lifetime count it would be climbed once and then sit at the top forever, incentivising nothing. A live countdown on the card shows how long the current day's rate has left, and the driver's lifetime total is still shown beside it so nothing feels erased.
 
 Five tiers, filling toward a **50% goal**:
@@ -270,7 +282,7 @@ A full day at the top tier (25 deliveries, ₹30 average fee) comes to **₹712.
 
 **Why it needed order-claiming.** A progress bar is only worth having if the number behind it is real, so orders now carry a `driver_id`:
 
-- The **Available orders** board lists every order no driver has claimed yet (refreshing itself every 10 seconds).
+- The **New** board lists every order no driver has claimed yet, newest first, refreshing itself every 10 seconds. (Newest-first means the longest-waiting order sits at the bottom, so keep an eye on the tail of the board on a busy day.)
 - **Accept delivery** claims one. The `driver_id IS NULL` guard is inside the `UPDATE` itself, so if two drivers tap Accept at the same moment, the second one changes 0 rows and gets told "another driver just took that one" — rather than both of them thinking it's theirs.
 - **Complete delivery** is what advances the bar. It only works on orders assigned to *that* driver, and requires the customer's delivery code (below).
 - Each job card shows what to collect (COD amount vs. already-settled UPI), the landmark note, and a **Navigate** button using the order's saved coordinates.

@@ -64,11 +64,48 @@
   .prog-tick em{ display:block; font-style:normal; font-size:.64rem; opacity:.6; margin-top:1px; white-space:nowrap; }
   .prog-goal{ color:#fff; font-weight:700; }
 
-  .stat-row{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:24px; }
-  .stat-box{ padding:16px 18px; }
-  .stat-box b{ display:block; font-family:var(--font-head); font-size:1.5rem; }
-  .stat-box span{ font-size:.78rem; color:var(--muted); }
-  @media (max-width:600px){ .stat-row{ grid-template-columns:1fr; } }
+  /* The strip and the tabs travel together under the nav, so today's earnings
+     stay in view on every tab and switching lists is always one tap away.
+     --nav-h is measured in JS because the nav is itself sticky and its height
+     changes with the viewport. */
+  .drv-sticky{
+    position:sticky; top:var(--nav-h, 60px); z-index:20;
+    background:var(--bg); padding:12px 0 10px; margin-bottom:6px;
+  }
+  .motiv{
+    display:block; width:100%; text-align:left; cursor:pointer; font:inherit;
+    border:none; border-radius:var(--radius); padding:13px 16px 12px;
+    background:var(--grad-warp); color:#fff; box-shadow:var(--shadow-violet-sm);
+  }
+  .motiv-row{ display:flex; align-items:center; gap:20px; }
+  .motiv-stat{ display:flex; flex-direction:column; line-height:1.15; }
+  .motiv-stat b{ font-family:var(--font-head); font-size:1.2rem; font-weight:700; font-variant-numeric:tabular-nums; }
+  .motiv-stat small{ font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; color:rgba(255,255,255,.7); margin-top:2px; }
+  .motiv-go{ margin-left:auto; font-size:1.5rem; line-height:1; color:rgba(255,255,255,.7); }
+  .motiv-track{ display:block; height:4px; border-radius:999px; background:rgba(255,255,255,.24); margin-top:11px; overflow:hidden; }
+  .motiv-fill{
+    display:block; height:100%; width:0; border-radius:999px;
+    background:linear-gradient(90deg,var(--lime),#8FE04A);
+    transition:width .9s cubic-bezier(.16,.84,.44,1);
+  }
+
+  /* .segmented is inline-flex by default — three labels overflow a phone. */
+  .drv-tabs{ display:flex; width:100%; margin-top:10px; }
+  .drv-tabs button{
+    flex:1; padding:9px 6px; font-size:.82rem; white-space:nowrap;
+    display:inline-flex; align-items:center; justify-content:center; gap:5px;
+  }
+  .tab-count{
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:19px; height:19px; padding:0 5px; border-radius:999px;
+    background:var(--violet); color:#fff; font-size:.7rem; font-weight:700; font-variant-numeric:tabular-nums;
+  }
+  /* Hidden rather than emptied, so the count stays readable to scripts. */
+  .tab-count.is-zero{ display:none; }
+  @media (max-width:420px){
+    .drv-tabs button{ font-size:.76rem; padding:9px 4px; gap:4px; }
+    .motiv-row{ gap:14px; }
+  }
 
   .job{ padding:18px 20px; margin-bottom:12px; }
   .job-head{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
@@ -136,88 +173,107 @@
 <!-- ---------- dashboard ---------- -->
 <div class="drv-wrap" id="dashboard" style="display:none;">
 
-  <div class="card prog-card">
-    <div class="prog-top">
-      <div>
-        <div class="prog-pct"><span id="progPct">5</span><small>%</small></div>
-        <div style="font-size:.85rem;color:rgba(255,255,255,.78);" id="progTierLabel">Tier 1 of 5</div>
+  <div class="drv-sticky">
+    <button type="button" class="motiv" onclick="showTab('earnings')">
+      <span class="motiv-row">
+        <span class="motiv-stat"><b id="motivPay">₹0</b><small>earned today</small></span>
+        <span class="motiv-stat"><b id="statCompleted">0</b><small>delivered</small></span>
+        <span class="motiv-stat"><b id="motivPct">5%</b><small>your rate</small></span>
+        <span class="motiv-go" aria-hidden="true">›</span>
+      </span>
+      <span class="motiv-track"><span class="motiv-fill" id="motivFill"></span></span>
+    </button>
+
+    <div class="segmented drv-tabs" id="drvTabs">
+      <button type="button" class="active" data-tab="deliveries">🚴 Deliveries <span class="tab-count is-zero" id="statActive">0</span></button>
+      <button type="button" data-tab="available">🆕 New <span class="tab-count is-zero" id="statAvailable">0</span></button>
+      <button type="button" data-tab="earnings">💰 Earnings</button>
+    </div>
+  </div>
+
+  <div id="deliveriesPanel">
+    <div class="sec-head" id="weeklyRouteHead" style="display:none;">
+      <h3>This week's grocery route</h3>
+      <div class="line"></div>
+    </div>
+    <div id="weeklyRouteBanner" style="display:none;"></div>
+    <div id="weeklyRouteList"></div>
+
+    <div class="sec-head">
+      <h3>Your deliveries</h3>
+      <div class="line"></div>
+      <button class="btn btn-ghost btn-sm" onclick="refresh(true)">↻ Refresh</button>
+    </div>
+    <div id="activeList"></div>
+  </div>
+
+  <div id="availablePanel" style="display:none;">
+    <div class="sec-head">
+      <h3>New orders</h3>
+      <div class="line"></div>
+      <button class="btn btn-ghost btn-sm" onclick="refresh(true)">↻ Refresh</button>
+    </div>
+    <div id="availableList"></div>
+  </div>
+
+  <div id="earningsPanel" style="display:none;">
+    <div class="card prog-card">
+      <div class="prog-top">
+        <div>
+          <div class="prog-pct"><span id="progPct">5</span><small>%</small></div>
+          <div style="font-size:.85rem;color:rgba(255,255,255,.78);" id="progTierLabel">Tier 1 of 5</div>
+        </div>
+        <div class="prog-meta" id="progMeta"></div>
       </div>
-      <div class="prog-meta" id="progMeta"></div>
-    </div>
-    <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
-    <div class="prog-ticks" id="progTicks"></div>
-    <div class="reset-row">
-      <span class="reset-chip">⏳ Today's rate resets in <b id="resetTimer">--:--:--</b></span>
-      <span class="reset-note" id="lifetimeNote"></span>
-    </div>
-  </div>
-
-  <div class="card pay-card">
-    <div class="row-between" style="margin-bottom:2px;">
-      <h3 style="margin:0;">Today's earnings</h3>
-      <button type="button" class="btn btn-ghost btn-sm" onclick="togglePayHelp()" id="payHelpBtn">How is this worked out?</button>
-    </div>
-    <div class="pay-total"><span id="payTotal">₹0</span><small id="payPerDelivery"></small></div>
-    <div class="pay-split">
-      <div><span class="pay-k">Base pay</span><span class="pay-v" id="payBase">₹0</span><small id="payBaseNote"></small></div>
-      <div><span class="pay-k">Tier bonus</span><span class="pay-v" id="payBonus">₹0</span><small id="payBonusNote"></small></div>
-    </div>
-    <div class="pay-nudge" id="payNudge"></div>
-
-    <div id="payHelp" style="display:none;">
-      <div class="divider"></div>
-      <h4 style="margin:0 0 8px;font-size:.92rem;">How your pay works</h4>
-      <ol class="pay-steps">
-        <li><b>Base pay.</b> Every completed delivery pays a flat <b id="helpBase">₹15</b>, whatever tier you're on. This never goes down.</li>
-        <li><b>Tier bonus.</b> On top of that you earn a percentage of the delivery fees you collected today. That percentage is the big number on the bar above.</li>
-        <li><b>More deliveries, higher percentage.</b> The bar climbs as you complete jobs — 5% to start, up to 45% once you've done 25 in a day.</li>
-        <li><b>The tier you finish on pays for the whole day.</b> Reach a new tier and it applies to <i>every</i> delivery you already made today, not just the ones after it. That's why one more job can be worth far more than the job itself.</li>
-        <li><b>It resets each night.</b> At midnight the count returns to zero and you start again at 5% — so the ladder is a daily target, not a rank you keep.</li>
-      </ol>
-      <div class="pay-table-wrap">
-        <table class="pay-table">
-          <thead><tr><th>Tier</th><th>Reach it at</th><th>Your %</th><th>Per delivery*</th></tr></thead>
-          <tbody id="payTableBody"></tbody>
-        </table>
+      <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+      <div class="prog-ticks" id="progTicks"></div>
+      <div class="reset-row">
+        <span class="reset-chip">⏳ Today's rate resets in <b id="resetTimer">--:--:--</b></span>
+        <span class="reset-note" id="lifetimeNote"></span>
       </div>
-      <p class="pay-foot">*On a ₹30 delivery fee — base pay plus your share. The actual fee varies from ₹20 to ₹40 with the size of the customer's order, so a bigger basket pays you more too.</p>
+    </div>
+
+    <div class="card pay-card">
+      <div class="row-between" style="margin-bottom:2px;">
+        <h3 style="margin:0;">Today's earnings</h3>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="togglePayHelp()" id="payHelpBtn">How is this worked out?</button>
+      </div>
+      <div class="pay-total"><span id="payTotal">₹0</span><small id="payPerDelivery"></small></div>
+      <div class="pay-split">
+        <div><span class="pay-k">Base pay</span><span class="pay-v" id="payBase">₹0</span><small id="payBaseNote"></small></div>
+        <div><span class="pay-k">Tier bonus</span><span class="pay-v" id="payBonus">₹0</span><small id="payBonusNote"></small></div>
+      </div>
+      <div class="pay-nudge" id="payNudge"></div>
+
+      <div id="payHelp" style="display:none;">
+        <div class="divider"></div>
+        <h4 style="margin:0 0 8px;font-size:.92rem;">How your pay works</h4>
+        <ol class="pay-steps">
+          <li><b>Base pay.</b> Every completed delivery pays a flat <b id="helpBase">₹15</b>, whatever tier you're on. This never goes down.</li>
+          <li><b>Tier bonus.</b> On top of that you earn a percentage of the delivery fees you collected today. That percentage is the big number on the bar above.</li>
+          <li><b>More deliveries, higher percentage.</b> The bar climbs as you complete jobs — 5% to start, up to 45% once you've done 25 in a day.</li>
+          <li><b>The tier you finish on pays for the whole day.</b> Reach a new tier and it applies to <i>every</i> delivery you already made today, not just the ones after it. That's why one more job can be worth far more than the job itself.</li>
+          <li><b>It resets each night.</b> At midnight the count returns to zero and you start again at 5% — so the ladder is a daily target, not a rank you keep.</li>
+        </ol>
+        <div class="pay-table-wrap">
+          <table class="pay-table">
+            <thead><tr><th>Tier</th><th>Reach it at</th><th>Your %</th><th>Per delivery*</th></tr></thead>
+            <tbody id="payTableBody"></tbody>
+          </table>
+        </div>
+        <p class="pay-foot">*On a ₹30 delivery fee — base pay plus your share. The actual fee varies from ₹20 to ₹40 with the size of the customer's order, so a bigger basket pays you more too.</p>
+      </div>
+    </div>
+
+    <div class="card pay-card">
+      <div class="row-between" style="margin-bottom:2px;">
+        <h3 style="margin:0;">Your payouts</h3>
+        <span class="text-muted" style="font-size:.82rem;">Pending <b id="payoutPending">₹0</b> · Received <b id="payoutReceived">₹0</b></span>
+      </div>
+      <p class="text-muted" style="font-size:.83rem;margin:2px 0 10px;">Every day you have worked, newest first. "Pending" is what you're still owed.</p>
+      <div id="payoutList"></div>
     </div>
   </div>
-
-  <div class="card pay-card">
-    <div class="row-between" style="margin-bottom:2px;">
-      <h3 style="margin:0;">Your payouts</h3>
-      <span class="text-muted" style="font-size:.82rem;">Pending <b id="payoutPending">₹0</b> · Received <b id="payoutReceived">₹0</b></span>
-    </div>
-    <p class="text-muted" style="font-size:.83rem;margin:2px 0 10px;">One row per day you worked. "Pending" is what you're still owed.</p>
-    <div id="payoutList"></div>
-  </div>
-
-  <div class="stat-row">
-    <div class="card stat-box"><b id="statCompleted">0</b><span>Delivered today</span></div>
-    <div class="card stat-box"><b id="statActive">0</b><span>On the way now</span></div>
-    <div class="card stat-box"><b id="statAvailable">0</b><span>Waiting to be picked up</span></div>
-  </div>
-
-  <div class="sec-head" id="weeklyRouteHead" style="display:none;">
-    <h3>This week's grocery route</h3>
-    <div class="line"></div>
-  </div>
-  <div id="weeklyRouteBanner" style="display:none;"></div>
-  <div id="weeklyRouteList"></div>
-
-  <div class="sec-head">
-    <h3>Your deliveries</h3>
-    <div class="line"></div>
-    <button class="btn btn-ghost btn-sm" onclick="refresh(true)">↻ Refresh</button>
-  </div>
-  <div id="activeList"></div>
-
-  <div class="sec-head">
-    <h3>Available orders</h3>
-    <div class="line"></div>
-  </div>
-  <div id="availableList"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -284,9 +340,45 @@ function openDashboard() {
   nameBadge.textContent = "🚴 " + driver.name;
   nameBadge.style.display = "inline-flex";
   document.getElementById("signOutBtn").style.display = "inline-flex";
+  showTab(localStorage.getItem(TAB_KEY) || "deliveries", true);
+  syncStickyOffset();
   refresh();
   setInterval(refresh, 10000);
 }
+
+/* ---- Tabs ---------------------------------------------------------------
+   Panels are shown and hidden, never rebuilt. refresh() rewrites every list
+   on every tick whether or not it is on screen, which is what keeps the tab
+   counts honest — and it means a half-typed delivery code on the hidden
+   deliveries panel survives both the tick and the tab switch, because the
+   input element itself is never thrown away. */
+const TAB_KEY = "warpx_driver_tab";
+const TABS = ["deliveries", "available", "earnings"];
+
+function showTab(name, silent) {
+  if (!TABS.includes(name)) name = "deliveries";
+  TABS.forEach((t) => {
+    document.getElementById(t + "Panel").style.display = t === name ? "block" : "none";
+  });
+  document.querySelectorAll("#drvTabs button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.tab === name);
+  });
+  localStorage.setItem(TAB_KEY, name);
+  if (!silent) window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+document.getElementById("drvTabs").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (btn) showTab(btn.dataset.tab);
+});
+
+/* The nav above is itself sticky, so the strip has to know how tall it is
+   rather than assume a fixed offset. */
+function syncStickyOffset() {
+  const nav = document.querySelector(".nav");
+  if (nav) document.documentElement.style.setProperty("--nav-h", nav.offsetHeight + "px");
+}
+window.addEventListener("resize", syncStickyOffset);
 
 /* ---- Daily reset countdown ---------------------------------------------
    The server sends seconds remaining rather than a timestamp, so the timer
@@ -325,6 +417,22 @@ function togglePayHelp() {
   const open = box.style.display === "none";
   box.style.display = open ? "block" : "none";
   document.getElementById("payHelpBtn").textContent = open ? "Hide the details" : "How is this worked out?";
+}
+
+/* The strip above the tabs — the motivating half of the earnings tab, kept in
+   view wherever the driver is. Every figure comes from the summary the page
+   already fetches. */
+function renderStrip(d) {
+  const p = d.progress;
+  document.getElementById("motivPay").textContent = "₹" + d.pay.total.toFixed(2).replace(/\.00$/, "");
+  document.getElementById("motivPct").textContent = p.percent + "%";
+  document.getElementById("motivFill").style.width = (p.barPercent / p.goal) * 100 + "%";
+}
+
+function setTabCount(id, n) {
+  const el = document.getElementById(id);
+  el.textContent = n;
+  el.classList.toggle("is-zero", n === 0);
 }
 
 function renderPay(d) {
@@ -531,11 +639,14 @@ async function refresh(manual) {
 
     renderProgress(summary.progress);
     renderPay(summary);
+    renderStrip(summary);
     loadPayouts();
     startResetCountdown(summary.resetsInSeconds);
     document.getElementById("statCompleted").textContent = summary.progress.completed;
-    document.getElementById("statActive").textContent = summary.active.length;
-    document.getElementById("statAvailable").textContent = available.length;
+    // The deliveries badge counts everything waiting on that tab, which is the
+    // claimed jobs plus this week's assigned grocery stops.
+    setTabCount("statActive", summary.active.length + (summary.weeklyStops || []).length);
+    setTabCount("statAvailable", available.length);
 
     // This list re-renders every 10 seconds. Without carrying the typed
     // digits (and the focus) across the re-render, a driver mid-way through
@@ -567,7 +678,11 @@ async function refresh(manual) {
               </div>
             </div>`))
           .join("")
-      : `<div class="card center" style="padding:36px 22px;"><div style="font-size:1.8rem;margin-bottom:8px;">📭</div><p class="text-muted mb-0">Nothing on the way right now — accept an order below.</p></div>`;
+      : `<div class="card center" style="padding:36px 22px;">
+           <div style="font-size:1.8rem;margin-bottom:8px;">📭</div>
+           <p class="text-muted" style="margin-bottom:14px;">Nothing on the way right now.</p>
+           <button class="btn btn-primary btn-sm" onclick="showTab('available')">🆕 See new orders</button>
+         </div>`;
 
     Object.entries(typedOtps).forEach(([id, value]) => {
       const el = document.getElementById(id);
@@ -653,7 +768,7 @@ async function loadPayouts() {
     document.getElementById("payoutPending").textContent = "₹" + data.pending;
     document.getElementById("payoutReceived").textContent = "₹" + data.received;
     box.innerHTML = data.rows.length
-      ? data.rows.slice(0, 10).map((r) => `
+      ? data.rows.map((r) => `
           <div class="payout-row">
             <div class="payout-who">
               <b>${esc(r.day)}</b>

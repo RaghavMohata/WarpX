@@ -677,7 +677,7 @@ function showWeeklyPlanModal(data, paymentLabel) {
   if (modalBody) {
     modalBody.innerHTML = `
       <div class="modal-icon">✅</div>
-      <h3>Your week is booked</h3>
+      <h3>Thanks for ordering!</h3>
       <p class="text-muted">${data.orders.length} delivery${data.orders.length === 1 ? "" : "s"}${slot ? `, between <b>${escapeAttr(slot.label)}</b> each day` : ""}. Keep these codes — the delivery partner asks for the day's code at handover.</p>
       <div class="otp-box" style="text-align:left;">
         ${data.orders.map((o) => `
@@ -687,8 +687,8 @@ function showWeeklyPlanModal(data, paymentLabel) {
           </div>`).join("")}
       </div>
       <p class="text-muted" style="font-size:.85rem;">Delivery ₹${data.fee.total} for the week. ${escapeAttr(paymentLabel)} Vegetables are priced at the market and confirmed on the day. Saved to your order history.</p>
-      <a href="orders.html" class="btn btn-ghost btn-block" style="margin-bottom:10px;">View my orders</a>
-      <button class="btn btn-primary btn-block" onclick="closeModal()">Done</button>
+      <a href="orders.html" class="btn btn-primary btn-block" style="margin-bottom:10px;">Track my deliveries</a>
+      <a href="index.html" class="btn btn-ghost btn-block">Back to home</a>
     `;
   }
   document.getElementById("orderModal")?.classList.add("open");

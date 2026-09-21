@@ -1,4 +1,9 @@
 /* Picasso Cafe menu — extracted from the supplied menu PDF.
+
+   To put a photo on an item, drop the file in img/menu/ and add an `img`
+   field: { name: "Berry Brew", price: 134, img: "img/menu/berry-brew.jpg" }.
+   Items without one show a tinted tile carrying the category mark, so the
+   menu stays presentable while the photographs are being taken.
    Listed prices include WarpX's ₹15 per-item margin on top of the cafe's
    own menu price. Raising or lowering that margin means editing these
    numbers; the admin earnings panel reports it as "food margin". */

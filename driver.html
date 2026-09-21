@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#6D28D9">
+<meta name="theme-color" content="#0B0A12">
 <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -59,7 +59,7 @@
   .pay-table{ width:100%; border-collapse:collapse; font-size:.84rem; }
   .pay-table th, .pay-table td{ text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
   .pay-table th{ font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
-  .pay-table tr.on td{ background:var(--grad-warp-soft); font-weight:700; color:var(--violet); }
+  .pay-table tr.on td{ background:var(--grad-warp-soft); font-weight:700; color:var(--violet-bright); }
   .pay-foot{ font-size:.76rem; color:var(--muted); margin:10px 0 0; }
   .prog-tick em{ display:block; font-style:normal; font-size:.64rem; opacity:.6; margin-top:1px; white-space:nowrap; }
   .prog-goal{ color:#fff; font-weight:700; }
@@ -98,7 +98,7 @@
   .tab-count{
     display:inline-flex; align-items:center; justify-content:center;
     min-width:19px; height:19px; padding:0 5px; border-radius:999px;
-    background:var(--violet); color:#fff; font-size:.7rem; font-weight:700; font-variant-numeric:tabular-nums;
+    background:var(--violet-bright); color:var(--bg); font-size:.7rem; font-weight:700; font-variant-numeric:tabular-nums;
   }
   /* Hidden rather than emptied, so the count stays readable to scripts. */
   .tab-count.is-zero{ display:none; }
@@ -165,7 +165,7 @@
     </div>
     <button class="btn btn-primary btn-block" id="drvSignInBtn" onclick="signIn(this)">Sign in</button>
     <p class="hint" style="margin-top:14px;text-align:center;">
-      Not signed up yet? <a href="careers.html" style="color:var(--violet);font-weight:600;">Apply to deliver →</a>
+      Not signed up yet? <a href="careers.html" style="color:var(--violet-bright);font-weight:600;">Apply to deliver →</a>
     </p>
   </div>
 </div>

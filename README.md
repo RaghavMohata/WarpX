@@ -341,7 +341,21 @@ This keeps the precision (real coordinates, an accurate radius check) while keep
 ## Design refresh: scroll animation, colors, buttons
 
 - **Scroll-reveal animation** — `js/main.js` runs an `IntersectionObserver` (`initScrollReveal()`) once per page load that fades/slides in cards, service tiles, section headers, and menu categories as they enter the viewport, with a slight stagger between siblings. It only touches static page content present at load — anything injected later (cart items, order lists, driver applications) renders normally, since animating a list that's still loading would read as a glitch, not a feature. Respects `prefers-reduced-motion: reduce` (skips the animation entirely for anyone who's asked their OS for less motion).
-- **Colour refresh** — the core `--grad-warp` brand gradient picked up an extra violet stop for more depth, plus new tinted-violet shadow tokens (`--shadow-violet`, `--shadow-violet-sm`) used on hover states instead of flat grey shadows, for a more "branded" glow. Per-service colors (food/grocery/medicine/laundry/anything) are unchanged — they're already distinct and consistently used across every page, so re-theming them risked more confusion than payoff.
+- **Colour refresh** — the core `--grad-warp` brand gradient picked up an extra violet stop for more depth, plus new tinted-violet shadow tokens (`--shadow-violet`, `--shadow-violet-sm`) used on hover states instead of flat grey shadows, for a more "branded" glow.
+
+## The dark theme
+
+The site is dark by design — there is no light/dark toggle and no `prefers-color-scheme` branch. One theme, defined entirely by the tokens in `:root` at the top of `css/style.css`, so re-theming means editing that block and nothing else.
+
+Three things about it are worth knowing before editing colours:
+
+- **`--violet` (#7C3AED) must never be used for text.** It reaches only 2.77:1 against the page background — unreadable. `--violet-bright` (#A78BFA, 6.2:1) is the violet for type and small marks; the deep one is for gradients, borders and focus rings. Every foreground/background pair in the token block was measured against WCAG AA before being committed, and a browser-side audit walks every visible text node on every page to catch regressions.
+- **`--fill-strong` replaced "`--ink` as a background".** On the light theme, an active chip or a dark button was near-black on white. That inverts to invisible on a dark page, so the role of "filled, high-emphasis surface" became its own token — lime with dark text. It drives active chips, the Add button, the toast and admin's active status button.
+- **Brightness direction flips for selected states.** The selected pill in a `.segmented` control has to be *lighter* than its track. Using `--surface` for it (as the light theme did) now reads as darker than the track, which looks like the wrong tab is selected.
+
+Per-service colours (food/grocery/medicine/laundry/anything) kept their hues but were brightened for dark, and each gained a deep tinted background (`--food-bg` and friends) used by icon tiles and service cards.
+
+**Menu photographs.** `js/menu-data.js` items accept an optional `img` path. Until one is set, the item shows a tile tinted in the service colour carrying the category mark — a deliberate object rather than an empty frame, so the menu looks finished while the photos are still being taken.
 - **Button & tile animation** — every `.btn` now lifts on hover and settles on click; `.btn-primary` additionally has an animated gradient sweep. Service tiles get a lift, a soft violet glow, and an icon pop on hover; menu items and "Add" buttons got matching micro-interactions.
 - **Copy pass** — tightened the homepage's hero line and all five service-card descriptions for punchier, more consistent tone.
 - **Floating hero blobs + parallax** — every hero banner (the homepage's tall `.hero`, and every inner page's shorter `.page-hero`) gets 2–3 soft blurred gradient blobs injected automatically by `initHeroBlobs()` — no per-page HTML needed. They drift slowly on their own (a looping CSS animation) and shift position at a slower rate than the page as you scroll (a JS-driven parallax effect), giving the hero a sense of depth instead of a flat gradient.

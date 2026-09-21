@@ -21,7 +21,7 @@ module.exports = {
      today. n8n itself, and the restaurant-owner / delivery-partner
      notifications it sends, are documented under "n8n order automation" in
      README.md. */
-  N8N_WEBHOOK_URL: "",
+  N8N_WEBHOOK_URL: "http://localhost:5678/webhook/new-order",
 
   /* Where n8n's "order status changed" webhook trigger is listening, e.g.
      "http://localhost:5678/webhook/order-status". Fired every time an order
@@ -29,7 +29,14 @@ module.exports = {
      the *customer* directly instead of them refreshing orders.html. Separate
      from N8N_WEBHOOK_URL above so the two can run as separate, simpler n8n
      workflows. Leave it empty and nothing changes. */
-  N8N_STATUS_WEBHOOK_URL: "",
+  N8N_STATUS_WEBHOOK_URL: "http://localhost:5678/webhook/order-status",
+
+  /* Where n8n's "customer order confirmation" webhook is listening, e.g.
+     "http://localhost:5678/webhook/customer-order". Sent only for customers
+     who have an email (Google sign-in) and carries their delivery OTP, so keep
+     it a separate workflow from N8N_WEBHOOK_URL. Leave it empty and nothing
+     changes. */
+  N8N_CUSTOMER_WEBHOOK_URL: "http://localhost:5678/webhook/customer-order",
 
   /* How many customers can hold the same weekly delivery slot (e.g. 8 – 10
      am). Once a slot has this many, it greys out on weekly.html and the next

@@ -1046,7 +1046,7 @@ app.get("/api/orders/available", (req, res) => {
       // individual weekly stops and defeat the whole point of routing them.
       `SELECT * FROM orders
        WHERE driver_id IS NULL AND status != 'delivered' AND weekly_window_id IS NULL
-       ORDER BY id ASC`
+       ORDER BY id DESC`
     )
     .all();
   const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");

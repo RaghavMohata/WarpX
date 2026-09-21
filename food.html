@@ -126,6 +126,24 @@
   </div>
 </footer>
 
+<div class="shot" id="shot" onclick="if(event.target===this)closeShot()">
+  <div class="shot-card" role="dialog" aria-modal="true" aria-labelledby="shotName">
+    <button type="button" class="shot-close" id="shotClose" onclick="closeShot()" aria-label="Close">✕</button>
+    <img class="shot-img" id="shotImg" alt="">
+    <div class="shot-body">
+      <div class="shot-head">
+        <h3 id="shotName"></h3>
+        <span class="shot-price" id="shotPrice"></span>
+      </div>
+      <p class="shot-note" id="shotNote"></p>
+      <div class="shot-tags" id="shotTags"></div>
+      <div class="shot-actions">
+        <button class="btn btn-primary btn-block" onclick="addFromShot()">Add to cart</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="js/menu-data.js"></script>
 <script src="lib/fee.js"></script>
 <script src="lib/schedule.js"></script>
@@ -133,6 +151,17 @@
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
 <script>
+function esc(str) {
+  const d = document.createElement("div");
+  d.textContent = str ?? "";
+  return d.innerHTML;
+}
+
+/* Every menu item by name, so the expanded view can be opened from a name
+   alone rather than threading an object through an inline handler. */
+const ITEMS_BY_NAME = {};
+PICASSO_MENU.forEach((cat) => cat.items.forEach((i) => { ITEMS_BY_NAME[i.name] = i; }));
+
 function renderMenu() {
   const container = document.getElementById("menuContainer");
   container.innerHTML = PICASSO_MENU.map((cat) => `
@@ -145,9 +174,12 @@ function renderMenu() {
       ${cat.items.map((item) => `
         <div class="menu-item">
           <div class="menu-item-main">
-            <div class="item-media">${item.img
-              ? `<img src="${item.img}" alt="${item.name}" loading="lazy">`
-              : cat.icon}</div>
+            ${item.img
+              ? `<button type="button" class="item-media tappable" onclick='openShot(${JSON.stringify(item.name)})'
+                         aria-label="See ${esc(item.name)} larger">
+                   <img src="${item.img}" alt="${esc(item.name)}" loading="lazy">
+                 </button>`
+              : `<div class="item-media">${cat.icon}</div>`}
             <div style="min-width:0;">
             <div class="menu-item-name">${item.name}</div>
             ${item.note ? `<p class="menu-item-note">${item.note}</p>` : ""}
@@ -171,6 +203,48 @@ function toggleMenu() {
   document.getElementById("menuWrapper").style.display = menuOpen ? "block" : "none";
   document.getElementById("cafeToggleIcon").style.transform = menuOpen ? "rotate(180deg)" : "rotate(0deg)";
 }
+
+/* ---- Expanded photo -----------------------------------------------------
+   The big image is only fetched when something is opened, so a menu of nine
+   posters costs nothing until a customer asks for one. */
+let shotItem = null;
+
+function openShot(name) {
+  const item = ITEMS_BY_NAME[name];
+  if (!item || !item.full) return;
+  shotItem = item;
+  document.getElementById("shotImg").src = item.full;
+  document.getElementById("shotImg").alt = item.name;
+  document.getElementById("shotName").textContent = item.name;
+  document.getElementById("shotPrice").textContent = "₹" + item.price;
+  const note = document.getElementById("shotNote");
+  note.textContent = item.note || "";
+  note.style.display = item.note ? "block" : "none";
+  const tags = document.getElementById("shotTags");
+  tags.innerHTML = [
+    item.tag ? `<span class="badge badge-warn">${esc(item.tag)}</span>` : "",
+    item.moq ? `<span class="badge badge-muted">Minimum order ${item.moq}</span>` : "",
+  ].join("");
+  document.getElementById("shot").classList.add("open");
+  document.body.style.overflow = "hidden";
+  document.getElementById("shotClose").focus();
+}
+
+function closeShot() {
+  document.getElementById("shot").classList.remove("open");
+  document.body.style.overflow = "";
+  shotItem = null;
+}
+
+function addFromShot() {
+  if (!shotItem) return;
+  addFoodItem(shotItem.name, shotItem.price, shotItem.moq || 1);
+  closeShot();
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeShot();
+});
 
 function addFoodItem(name, price, moq) {
   addToCart({ service: "food", name, price, qty: moq || 1 });

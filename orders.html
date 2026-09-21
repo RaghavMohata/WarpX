@@ -19,7 +19,7 @@
 
 <nav class="nav">
   <div class="nav-inner">
-    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <a href="index.html" class="brand" translate="no"><span class="brand-mark">W</span>WarpX</a>
     <div class="nav-links" id="navLinks">
       <a href="index.html">Home</a>
       <a href="food.html">Food</a>
@@ -204,7 +204,7 @@ async function loadOrders() {
       <div class="card" style="padding:24px;margin-bottom:16px;">
         <div class="row-between" style="margin-bottom:10px;">
           <div>
-            <b>#${escapeAttr(o.order_number)}</b>
+            <b translate="no">#${escapeAttr(o.order_number)}</b>
             <div class="text-muted" style="font-size:.82rem;">${escapeAttr(o.created_at)}</div>
           </div>
           <span class="badge ${o.status === "delivered" ? "badge-success" : "badge-lime"}">${escapeAttr(o.status)}</span>
@@ -214,7 +214,7 @@ async function loadOrders() {
           ${o.items.map((it) => `
             <div style="padding:4px 0;">
               <div class="row-between" style="font-size:.9rem;">
-                <span>${it.qty} × ${escapeAttr(it.name)} <span class="text-muted">(${escapeAttr(SERVICE_META[it.service]?.label || it.service)})</span></span>
+                <span><span translate="no">${it.qty} × ${escapeAttr(it.name)}</span> <span class="text-muted">(${escapeAttr(SERVICE_META[it.service]?.label || it.service)})</span></span>
                 <span>${it.price != null ? "₹" + (it.price * it.qty) : "TBC"}</span>
               </div>
               ${it.note ? `<div class="text-muted" style="font-size:.8rem;">${escapeAttr(it.note)}</div>` : ""}
@@ -231,7 +231,7 @@ async function loadOrders() {
         ${o.delivery_otp && o.status !== "delivered" ? `
           <div class="otp-box">
             <span class="otp-label">Your delivery code</span>
-            <div class="otp-code">${escapeAttr(o.delivery_otp)}</div>
+            <div class="otp-code" translate="no">${escapeAttr(o.delivery_otp)}</div>
             <p class="otp-hint">Read this out to the delivery partner at handover — they can't complete the delivery without it. Don't share it before your order arrives.</p>
           </div>` : ""}
       </div>
@@ -306,6 +306,7 @@ async function removeAddress(id) {
 
 loadAddresses();
 </script>
+<script src="js/translate.js"></script>
 <script src="/js/pwa.js"></script>
 </body>
 </html>

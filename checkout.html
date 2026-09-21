@@ -19,7 +19,7 @@
 
 <nav class="nav">
   <div class="nav-inner">
-    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <a href="index.html" class="brand" translate="no"><span class="brand-mark">W</span>WarpX</a>
     <div class="nav-links" id="navLinks">
       <a href="index.html">Home</a>
       <a href="food.html">Food</a>
@@ -479,7 +479,7 @@ function renderAddressList() {
       ? `<div class="addr-card">
            <div class="addr-body">
              <div class="addr-title"><span class="addr-icon">📍</span><b>Current location</b></div>
-             <p class="addr-line">${escapeAttr(loc.address) || "No landmark added"}</p>
+             <p class="addr-line" translate="no">${escapeAttr(loc.address) || "No landmark added"}</p>
              <p class="addr-meta">⚡ ${loc.zone === "core" ? "Prime warp zone" : "Extended zone"} · ${escapeAttr(loc.etaMin)} min</p>
            </div>
          </div>
@@ -682,8 +682,8 @@ function showWeeklyPlanModal(data, paymentLabel) {
       <div class="otp-box" style="text-align:left;">
         ${data.orders.map((o) => `
           <div class="row-between" style="padding:6px 0;font-size:.9rem;">
-            <span>${escapeAttr(formatDayDate(o.date))} <span class="text-muted">#${escapeAttr(o.orderNumber)}</span></span>
-            <b style="letter-spacing:.12em;">${escapeAttr(o.deliveryOtp)}</b>
+            <span>${escapeAttr(formatDayDate(o.date))} <span class="text-muted" translate="no">#${escapeAttr(o.orderNumber)}</span></span>
+            <b style="letter-spacing:.12em;" translate="no">${escapeAttr(o.deliveryOtp)}</b>
           </div>`).join("")}
       </div>
       <p class="text-muted" style="font-size:.85rem;">Delivery ₹${data.fee.total} for the week. ${escapeAttr(paymentLabel)} Vegetables are priced at the market and confirmed on the day. Saved to your order history.</p>
@@ -783,6 +783,7 @@ async function submitOrder(btn) {
   }
 })();
 </script>
+<script src="js/translate.js"></script>
 <script src="/js/pwa.js"></script>
 </body>
 </html>

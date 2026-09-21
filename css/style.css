@@ -169,6 +169,12 @@ button{ font-family:inherit; color:inherit; }
 .nav-links a:hover{ background:var(--surface-2); color:var(--ink); }
 .nav-links a.active{ background:var(--surface-2); color:var(--violet-bright); }
 .nav-actions{ display:flex; align-items:center; gap:10px; }
+/* The driver nav sat exactly at 430px before the language button existed, so
+   one more control pushed it into horizontal scroll. Wrapping is the safety
+   net for the next addition; driver.html also drops its back-link label on
+   narrow screens so it stays on one row. The sticky offset is measured in JS,
+   so a taller nav is handled. */
+@media (max-width:520px){ .nav-actions{ flex-wrap:wrap; justify-content:flex-end; row-gap:6px; } }
 .icon-btn{
   position:relative; width:42px; height:42px; border-radius:var(--radius-pill); background:var(--surface-2);
   border:1px solid var(--line); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--ink);
@@ -180,6 +186,32 @@ button{ font-family:inherit; color:inherit; }
   position:absolute; top:-4px; right:-4px; background:var(--anything); color:var(--bg); font-size:.65rem; font-weight:700;
   min-width:18px; height:18px; border-radius:99px; display:flex; align-items:center; justify-content:center; padding:0 4px;
 }
+/* ---------- language picker ---------- */
+.lang-wrap{ position:relative; }
+.lang-btn{ width:auto; min-width:42px; padding:0 12px; font-size:.78rem; font-weight:700; letter-spacing:.02em; }
+.lang-menu{
+  position:absolute; top:calc(100% + 8px); right:0; z-index:60;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-sm);
+  box-shadow:var(--shadow); padding:5px; min-width:132px;
+  display:none;
+}
+.lang-menu.open{ display:block; }
+.lang-menu button{
+  display:block; width:100%; text-align:left; cursor:pointer;
+  background:transparent; border:none; border-radius:7px;
+  padding:9px 11px; font-size:.88rem; font-weight:600; color:var(--ink-soft);
+}
+.lang-menu button:hover{ background:var(--surface-2); color:var(--ink); }
+.lang-menu button.on{ background:var(--grad-warp-soft); color:var(--violet-bright); }
+
+/* Google's widget injects a light-themed banner, a tooltip and an inline
+   top offset on <body>. All three are wrong here — the language is chosen from
+   the nav button instead — so they are suppressed rather than restyled. */
+#warpxTranslateHost{ display:none; }
+.goog-te-banner-frame, .goog-te-balloon-frame, #goog-gt-tt, .goog-te-gadget-icon{ display:none !important; }
+body{ top:0 !important; }
+.goog-text-highlight{ background:none !important; box-shadow:none !important; }
+
 .nav-toggle{ display:none; }
 @media (max-width:860px){
   .nav-links{ display:none; }

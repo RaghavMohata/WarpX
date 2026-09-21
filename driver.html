@@ -127,9 +127,9 @@
 
 <nav class="nav">
   <div class="nav-inner">
-    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <a href="index.html" class="brand" translate="no"><span class="brand-mark">W</span>WarpX</a>
     <div class="nav-actions">
-      <a href="index.html" class="btn btn-ghost btn-sm">← WarpX site</a>
+      <a href="index.html" class="btn btn-ghost btn-sm">←<span class="hide-mobile"> WarpX site</span></a>
       <span class="badge badge-muted" id="navDriverName" style="display:none;"></span>
       <button class="btn btn-ghost btn-sm" id="signOutBtn" onclick="signOut()" style="display:none;">Sign out</button>
     </div>
@@ -373,12 +373,19 @@ document.getElementById("drvTabs").addEventListener("click", (e) => {
 });
 
 /* The nav above is itself sticky, so the strip has to know how tall it is
-   rather than assume a fixed offset. */
+   rather than assume a fixed offset. A ResizeObserver rather than a one-off
+   measurement, because the nav can change height after this first runs — it
+   wraps to two rows on a narrow screen once the driver name and Sign out
+   appear, and measuring too early left the strip floating 40px short. */
 function syncStickyOffset() {
   const nav = document.querySelector(".nav");
   if (nav) document.documentElement.style.setProperty("--nav-h", nav.offsetHeight + "px");
 }
 window.addEventListener("resize", syncStickyOffset);
+(function watchNav() {
+  const nav = document.querySelector(".nav");
+  if (nav && window.ResizeObserver) new ResizeObserver(syncStickyOffset).observe(nav);
+})();
 
 /* ---- Daily reset countdown ---------------------------------------------
    The server sends seconds remaining rather than a timestamp, so the timer
@@ -505,7 +512,7 @@ function orderCard(o, action) {
     <div class="card job">
       <div class="job-head">
         <div>
-          <b>#${esc(o.order_number)}</b>${o.route_position != null ? ` <span class="badge badge-muted">Stop ${o.route_position}</span>` : ""}
+          <b translate="no">#${esc(o.order_number)}</b>${o.route_position != null ? ` <span class="badge badge-muted">Stop ${o.route_position}</span>` : ""}
           <div class="text-muted" style="font-size:.8rem;">${esc(o.created_at)}</div>
         </div>
         <div style="text-align:right;">
@@ -515,9 +522,9 @@ function orderCard(o, action) {
           </div>
         </div>
       </div>
-      <div class="job-items">${items}</div>
+      <div class="job-items" translate="no">${items}</div>
       ${isPickup ? `<div class="text-muted" style="font-size:.82rem;">🏪 <b>Pickup:</b> ${esc(o.pickupAddress)}</div>` : ""}
-      <div class="text-muted" style="font-size:.82rem;">${o.scheduled_for ? `<span class="sched-tag">🗓️ ${esc(formatSchedule(o.scheduled_for))}</span> · ` : ""}${o.address_label ? "<b>" + esc(o.address_label) + "</b> · " : ""}${isPickup ? "🚪 <b>Drop-off:</b> " : ""}${esc(o.address) || "No landmark note given"}</div>
+      <div class="text-muted" style="font-size:.82rem;">${o.scheduled_for ? `<span class="sched-tag">🗓️ ${esc(formatSchedule(o.scheduled_for))}</span> · ` : ""}${o.address_label ? "<b translate=\"no\">" + esc(o.address_label) + "</b> · " : ""}${isPickup ? "🚪 <b>Drop-off:</b> " : ""}<span translate="no">${esc(o.address) || ""}</span>${o.address ? "" : "No landmark note given"}</div>
       <div class="job-actions">${maps}${action}</div>
     </div>`;
 }
@@ -891,6 +898,7 @@ initGoogleSignIn({
   }
 });
 </script>
+<script src="js/translate.js"></script>
 <script src="/js/pwa.js"></script>
 </body>
 </html>

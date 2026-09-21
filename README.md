@@ -343,6 +343,48 @@ This keeps the precision (real coordinates, an accurate radius check) while keep
 - **Scroll-reveal animation** — `js/main.js` runs an `IntersectionObserver` (`initScrollReveal()`) once per page load that fades/slides in cards, service tiles, section headers, and menu categories as they enter the viewport, with a slight stagger between siblings. It only touches static page content present at load — anything injected later (cart items, order lists, driver applications) renders normally, since animating a list that's still loading would read as a glitch, not a feature. Respects `prefers-reduced-motion: reduce` (skips the animation entirely for anyone who's asked their OS for less motion).
 - **Colour refresh** — the core `--grad-warp` brand gradient picked up an extra violet stop for more depth, plus new tinted-violet shadow tokens (`--shadow-violet`, `--shadow-violet-sm`) used on hover states instead of flat grey shadows, for a more "branded" glow.
 
+## Languages
+
+A button in the nav offers **English · मराठी · हिंदी**, driving Google's Website
+Translator widget (`js/translate.js`). Machine translation was chosen over a
+hand-written dictionary deliberately: one script covers every page including
+everything rendered by JavaScript, where a dictionary would mean several
+hundred strings kept in step by hand. The costs were understood going in —
+Google closed this widget to new sites around 2019 and it is unsupported, and
+machine quality on action words is serviceable rather than good.
+
+**The work is not the script tag, it is deciding what must not be translated.**
+Product names, prices, order numbers, delivery codes, addresses and the WarpX
+wordmark carry `translate="no"` in the templates that render them. Without
+those marks a customer reads a machine translation of their own address, and
+"Berry Brew" becomes something Picasso does not sell. Adding a new template
+that renders any of those means adding the attribute too.
+
+Other things worth knowing:
+
+- The widget is **loaded only when it is needed** — on first use, or straight
+  away for someone who already chose a language. English visitors never
+  download it.
+- Google's own banner, tooltip and the `top: 40px` it puts on `<body>` are
+  suppressed in `css/style.css`; the language is chosen from the nav instead.
+- If the script fails to load — blocked, offline, or withdrawn — **the button
+  hides itself** and the site carries on in English.
+- The choice is kept in `localStorage` and in the `googtrans` cookie the
+  widget reads, so it survives navigation and reload.
+- `admin.html` is deliberately excluded.
+
+**Not verified in this environment.** The sandbox's egress proxy re-signs TLS
+and Chromium will not trust its CA, so Google is unreachable there and live
+Marathi output could not be checked. What was checked: the button and menu,
+persistence, the blocked-Google path (which that sandbox exercises for real),
+and — using a stub that rewrites text nodes the way the widget does — that
+every protected element survives translation and that a half-typed delivery
+code on the Driver Hub survives a refresh while the page is translated. Seeing
+actual Marathi needs a machine with ordinary internet access.
+
+If the widget is ever withdrawn, the fallback is the dictionary approach: the
+`translate="no"` marks already identify everything that must stay as it is.
+
 ## The dark theme
 
 The site is dark by design — there is no light/dark toggle and no `prefers-color-scheme` branch. One theme, defined entirely by the tokens in `:root` at the top of `css/style.css`, so re-theming means editing that block and nothing else.

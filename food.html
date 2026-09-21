@@ -19,7 +19,7 @@
 
 <nav class="nav">
   <div class="nav-inner">
-    <a href="index.html" class="brand"><span class="brand-mark">W</span>WarpX</a>
+    <a href="index.html" class="brand" translate="no"><span class="brand-mark">W</span>WarpX</a>
     <div class="nav-links" id="navLinks">
       <a href="index.html">Home</a>
       <a href="food.html">Food</a>
@@ -132,8 +132,8 @@
     <img class="shot-img" id="shotImg" alt="">
     <div class="shot-body">
       <div class="shot-head">
-        <h3 id="shotName"></h3>
-        <span class="shot-price" id="shotPrice"></span>
+        <h3 id="shotName" translate="no"></h3>
+        <span class="shot-price" id="shotPrice" translate="no"></span>
       </div>
       <p class="shot-note" id="shotNote"></p>
       <div class="shot-tags" id="shotTags"></div>
@@ -181,14 +181,14 @@ function renderMenu() {
                  </button>`
               : `<div class="item-media">${cat.icon}</div>`}
             <div style="min-width:0;">
-            <div class="menu-item-name">${item.name}</div>
+            <div class="menu-item-name" translate="no">${item.name}</div>
             ${item.note ? `<p class="menu-item-note">${item.note}</p>` : ""}
             ${item.moq ? `<p class="menu-item-note">Minimum order: ${item.moq}</p>` : ""}
             ${item.tag ? `<div class="menu-item-tags"><span class="badge badge-warn">${item.tag}</span></div>` : ""}
             </div>
           </div>
           <div class="menu-item-right">
-            <span class="price">₹${item.price}</span>
+            <span class="price" translate="no">₹${item.price}</span>
             <button class="add-btn" onclick='addFoodItem(${JSON.stringify(item.name)}, ${item.price}, ${item.moq || 1})'>Add</button>
           </div>
         </div>
@@ -260,6 +260,7 @@ function addCustomFood() {
 
 renderMenu();
 </script>
+<script src="js/translate.js"></script>
 <script src="/js/pwa.js"></script>
 </body>
 </html>

@@ -113,7 +113,7 @@ function renderCartDrawer() {
       return `
       <div class="cart-line">
         <div class="cart-line-info">
-          <b>${escapeHtml(c.name)}</b>
+          <b translate="no">${escapeHtml(c.name)}</b>
           <small style="color:${meta.color}">${meta.label}${c.note ? " · " + escapeHtml(c.note) : ""}</small>
           <small>${priceLine}</small>
         </div>
@@ -201,12 +201,12 @@ function showOrderModal(orderNumber, eta, persisted, paymentLabel, deliveryOtp, 
       <div class="modal-icon">✅</div>
       <h3>Thanks for ordering!</h3>
       <p class="text-muted">${scheduledFor
-        ? `Order <b>#${orderNumber}</b> is booked in. We'll have it with you <b>${formatSchedule(scheduledFor)}</b>.`
-        : `Order <b>#${orderNumber}</b> is being prepped. At warp speed, expect it in about <b>${eta}</b>.`}</p>
+        ? `Order <b translate="no">#${orderNumber}</b> is booked in. We'll have it with you <b>${formatSchedule(scheduledFor)}</b>.`
+        : `Order <b translate="no">#${orderNumber}</b> is being prepped. At warp speed, expect it in about <b>${eta}</b>.`}</p>
       ${deliveryOtp ? `
         <div class="otp-box">
           <span class="otp-label">Your delivery code</span>
-          <div class="otp-code">${deliveryOtp}</div>
+          <div class="otp-code" translate="no">${deliveryOtp}</div>
           <p class="otp-hint">Give this to the delivery partner when your order arrives — it's how they confirm the handover. It's saved in My Orders too.</p>
         </div>` : ""}
       <p class="text-muted" style="font-size:.85rem;">${paymentLabel || "Cash on delivery."} ${persisted ? "Saved to your order history." : "This is a local demo checkout — no server was detected, so nothing was saved to a database."}</p>

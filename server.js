@@ -84,13 +84,30 @@ function notifyN8n(order) {
 function notifyN8nStatus(order, status) {
   const url = process.env.N8N_STATUS_WEBHOOK_URL || config.N8N_STATUS_WEBHOOK_URL;
   if (!url) return;
-  const customer = db.prepare("SELECT name, phone FROM users WHERE id = ?").get(order.user_id);
+  const customer = db.prepare("SELECT name, phone, email FROM users WHERE id = ?").get(order.user_id);
   postToN8n(url, {
     orderId: order.id,
     orderNumber: order.order_number,
     status,
     customerName: customer ? customer.name : null,
     customerPhone: customer ? customer.phone : null,
+    customerEmail: customer ? customer.email : null,
+  });
+}
+
+/* Order confirmation email to the *customer*, via its own n8n webhook so the
+   delivery OTP only ever travels to the customer's workflow — never the owner's
+   (N8N_WEBHOOK_URL above), which is why that payload still has no OTP. Only
+   customers who signed in with Google have an email; everyone else is skipped. */
+function notifyN8nCustomer({ userId, orderNumber, total, paymentMethod, etaMin, scheduledFor, deliveryOtp }) {
+  const url = process.env.N8N_CUSTOMER_WEBHOOK_URL || config.N8N_CUSTOMER_WEBHOOK_URL;
+  if (!url) return;
+  const customer = db.prepare("SELECT name, email FROM users WHERE id = ?").get(userId);
+  if (!customer || !customer.email) return;
+  postToN8n(url, {
+    customerName: customer.name,
+    customerEmail: customer.email,
+    orderNumber, total, paymentMethod, etaMin, scheduledFor, deliveryOtp,
   });
 }
 
@@ -553,6 +570,7 @@ app.post("/api/orders", (req, res) => {
     etaMin,
     scheduledFor,
   });
+  notifyN8nCustomer({ userId, orderNumber, total, paymentMethod: method, etaMin, scheduledFor, deliveryOtp });
 
   res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed", deliveryOtp, addressLabel: chosenAddress ? chosenAddress.label : null, scheduledFor });
 });

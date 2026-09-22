@@ -4,6 +4,11 @@
 
 WarpX is a hyperlocal quick-commerce pickup & drop service built for small towns — food, grocery, medicine, laundry, and anything else, with a delivery fee that scales down as the order grows.
 
+> **Working on this with Claude Code?** Start with [`CLAUDE.md`](CLAUDE.md) — the
+> stack boundaries, the rules that aren't obvious from reading the code, and a
+> table pointing at whichever section below answers your question. It is short
+> on purpose; this file is the long version.
+
 ## Running locally, with the real database
 
 WarpX now has a small backend: an Express server backed by SQLite, using Node's **built-in** `node:sqlite` module — no database to install, no account to sign up for, no native modules to compile. Just:

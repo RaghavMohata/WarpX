@@ -268,6 +268,98 @@ body{ top:0 !important; }
 .hero-inner > *:nth-child(4), .page-hero .container > *:nth-child(4){ animation-delay:.35s; }
 .hero-inner > *:nth-child(5), .page-hero .container > *:nth-child(5){ animation-delay:.45s; }
 @keyframes hero-in{ from{ opacity:0; transform:translateY(18px); } to{ opacity:1; transform:translateY(0); } }
+
+/* ---------- hero rotating word ----------
+   Inline-block so the headline reflows around it; the outgoing word blurs and
+   rises while the incoming one arrives, which reads as a swap rather than a
+   flicker. Only the opening phrase moves — the rest of the line is fixed, so
+   the sentence stays readable. */
+.rotator{
+  display:inline-block; position:relative; white-space:nowrap; overflow:hidden;
+  vertical-align:bottom;
+  transition:width .34s cubic-bezier(.16,.84,.44,1);
+}
+.rotator-word{
+  display:inline-block;
+  background:linear-gradient(90deg,var(--lime),#EAFFA6);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+  transition:opacity .34s ease, transform .34s cubic-bezier(.16,.84,.44,1), filter .34s ease;
+}
+.rotator-word.out{ opacity:0; transform:translateY(-16px); filter:blur(6px); }
+.rotator-word.in{ opacity:0; transform:translateY(16px); filter:blur(6px); }
+
+/* ---------- marquee ----------
+   Two identical runs side by side; translating the track by exactly half its
+   width loops seamlessly. Paused when scrolled out of view (a class set in
+   JS) so it is not burning frames off-screen. */
+.marquee{
+  overflow:hidden; border-bottom:1px solid var(--line);
+  background:var(--bg-deep); padding:11px 0;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);
+}
+.marquee-track{ display:flex; width:max-content; animation:marquee-run 34s linear infinite; }
+.marquee-run{ display:inline-flex; align-items:center; white-space:nowrap; }
+.marquee b{ font-size:.84rem; font-weight:600; color:var(--ink-soft); padding:0 18px; }
+.marquee i{ font-style:normal; color:var(--violet-bright); opacity:.55; }
+.marquee:hover .marquee-track,
+.marquee.paused .marquee-track{ animation-play-state:paused; }
+@keyframes marquee-run{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
+
+/* ---------- reveal directions ----------
+   The base .reveal/.reveal-in pair already existed; these only change where
+   the element comes from. */
+.reveal-left{ transform:translateX(-28px); }
+.reveal-right{ transform:translateX(28px); }
+.reveal-scale{ transform:scale(.94); }
+.reveal-in.reveal-left, .reveal-in.reveal-right, .reveal-in.reveal-scale{ transform:none; }
+
+/* ---------- page transitions ----------
+   Cross-document view transitions: the browser cross-fades between pages
+   instead of flashing. Entirely CSS — browsers without support (Firefox
+   today) navigate exactly as before, so there is nothing to fall back to.
+   Held inside no-preference so it is off for reduced motion. */
+@media (prefers-reduced-motion: no-preference){
+  @view-transition{ navigation:auto; }
+  /* Naming the nav keeps it still while the page body changes underneath. */
+  .nav{ view-transition-name:warpx-nav; }
+  ::view-transition-old(root){ animation:vt-out .22s ease both; }
+  ::view-transition-new(root){ animation:vt-in .26s ease both; }
+}
+@keyframes vt-out{ to{ opacity:0; transform:translateY(-6px); } }
+@keyframes vt-in{ from{ opacity:0; transform:translateY(8px); } }
+
+/* ---------- scroll progress ---------- */
+.scroll-bar{
+  position:fixed; top:0; left:0; height:2px; width:100%; z-index:70;
+  transform:scaleX(0); transform-origin:0 50%;
+  background:linear-gradient(90deg,var(--violet-bright),var(--lime));
+  pointer-events:none;
+}
+
+/* ---------- press ripple ---------- */
+.btn{ position:relative; overflow:hidden; }
+.ripple{
+  position:absolute; border-radius:50%; pointer-events:none;
+  background:rgba(255,255,255,.4); transform:scale(0); opacity:.7;
+  animation:ripple-out .55s ease-out forwards;
+}
+@keyframes ripple-out{ to{ transform:scale(2.6); opacity:0; } }
+
+/* ---------- cart badge pop ---------- */
+.cart-count.pop{ animation:badge-pop .42s cubic-bezier(.34,1.56,.64,1); }
+@keyframes badge-pop{ 0%{ transform:scale(1); } 40%{ transform:scale(1.55); } 100%{ transform:scale(1); } }
+
+/* Everything above is decoration. Anyone who has asked their system for less
+   motion gets the site with none of it running. */
+@media (prefers-reduced-motion: reduce){
+  .marquee-track{ animation:none; }
+  .rotator{ transition:none; }
+  .rotator-word{ transition:none; }
+  .scroll-bar{ display:none; }
+  .ripple{ display:none; }
+  .cart-count.pop{ animation:none; }
+}
 @media (prefers-reduced-motion: reduce){
   .hero-inner > *, .page-hero .container > *{ opacity:1; animation:none; }
 }

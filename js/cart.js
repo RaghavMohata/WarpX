@@ -89,8 +89,17 @@ const SERVICE_META = {
 function updateCartBadge() {
   document.querySelectorAll("[data-cart-count]").forEach((el) => {
     const n = cartCount();
+    const grew = n > Number(el.textContent || 0);
     el.textContent = n;
     el.style.display = n > 0 ? "flex" : "none";
+    // Pop only when the count went up, so removing an item does not celebrate.
+    // Re-adding the class needs the old one gone first or the animation will
+    // not restart.
+    if (grew) {
+      el.classList.remove("pop");
+      void el.offsetWidth;
+      el.classList.add("pop");
+    }
   });
 }
 

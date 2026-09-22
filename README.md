@@ -343,6 +343,46 @@ This keeps the precision (real coordinates, an accurate radius check) while keep
 - **Scroll-reveal animation** — `js/main.js` runs an `IntersectionObserver` (`initScrollReveal()`) once per page load that fades/slides in cards, service tiles, section headers, and menu categories as they enter the viewport, with a slight stagger between siblings. It only touches static page content present at load — anything injected later (cart items, order lists, driver applications) renders normally, since animating a list that's still loading would read as a glitch, not a feature. Respects `prefers-reduced-motion: reduce` (skips the animation entirely for anyone who's asked their OS for less motion).
 - **Colour refresh** — the core `--grad-warp` brand gradient picked up an extra violet stop for more depth, plus new tinted-violet shadow tokens (`--shadow-violet`, `--shadow-violet-sm`) used on hover states instead of flat grey shadows, for a more "branded" glow.
 
+## Animation
+
+Asked for a component pack (`npx shadcn add @skiper-ui/skiper40`), the answer
+was no: `shadcn` copies React components and needs React, Tailwind, a bundler
+and a `components.json`. This site is hand-written HTML and CSS with vanilla
+JS and two dependencies. Converting it to React to gain animations would mean
+rewriting every page, the cart, checkout, the weekly planner and the driver
+hub. The effects were built directly instead, on top of the four functions
+already in `js/main.js` (`initScrollReveal`, `initHeroBlobs`, `initCountUp`,
+`initTiltCards`).
+
+What was added:
+
+- **A rotating headline.** The homepage `<h1>` cycles its opening phrase —
+  Cold brew, Groceries, Medicine, Laundry, Anything you need — while
+  ", delivered at warp speed." stays put. It is advertising, not decoration:
+  the first line names the four services. The slot animates to each word's
+  measured width, because pinning it to the longest word left a gap before the
+  comma and letting it reflow freely snapped the rest of the line sideways.
+- **A marquee** under the hero, duplicated track so the loop has no seam,
+  paused on hover and whenever it scrolls out of view.
+- **Page transitions** via `@view-transition { navigation: auto; }` — pure
+  CSS, no JavaScript. Chrome, Edge and Safari cross-fade between pages;
+  Firefox navigates exactly as before, so there is nothing to fall back to.
+- **Reveal directions** (`data-reveal="left|right|scale"`), a scroll-progress
+  hairline, magnetic primary buttons, a press ripple, and a pop on the cart
+  badge when it grows (only when it grows — removing an item should not
+  celebrate).
+
+Three rules hold this together, and breaking any of them is how it turns bad:
+
+1. **Everything stops under `prefers-reduced-motion: reduce`.** Every function
+   checks it, and the CSS has a block that switches the rest off.
+2. **The Driver Hub and admin get none of it.** Neither loads `js/main.js` and
+   that should stay true — the driver hub re-renders every ten seconds and
+   holds a half-typed delivery code.
+3. **Scroll reveal touches static structure only.** It runs once at load. Point
+   it at injected lists — order history, job cards, cart lines — and every
+   refresh will replay the animation, which reads as a bug.
+
 ## Languages
 
 A button in the nav offers **English · मराठी · हिंदी**, driving Google's Website

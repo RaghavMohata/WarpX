@@ -47,6 +47,20 @@ function loadGoogleScript() {
   });
 }
 
+/* Google only accepts an https:// origin, or http:// on localhost, and never a
+   raw IP address (loopback excepted) or a .local name. Opening the site from a
+   phone at http://192.168.x.x:3000 is none of those, and no Console setting can
+   make it one — the button would render and then fail with Google's
+   "Access blocked … origin_mismatch" page. Treat it like being unconfigured. */
+function googleAcceptsThisOrigin() {
+  const h = location.hostname;
+  if (h === "localhost" || h === "127.0.0.1" || h === "[::1]") return true;
+  if (location.protocol !== "https:") return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.startsWith("[")) return false;
+  if (h.endsWith(".local")) return false;
+  return true;
+}
+
 function oneTapAllowed() {
   const page = location.pathname.split("/").pop() || "index.html";
   if (ONETAP_EXCLUDED_PAGES.includes(page)) return false;
@@ -61,6 +75,15 @@ function oneTapAllowed() {
 async function initGoogleSignIn({ mode = "customer", onResult, onError, oneTap = false } = {}) {
   const containers = document.querySelectorAll("[data-google-signin]");
   if (!containers.length) return;
+
+  if (!googleAcceptsThisOrigin()) {
+    containers.forEach((el) => { el.style.display = "none"; });
+    // The one clue for whoever is testing from a phone and wonders where the
+    // button went.
+    console.info(`Google sign-in hidden: Google won't accept ${location.origin} as an origin. ` +
+      "Use https://your-domain, or http://localhost on the machine running the server.");
+    return;
+  }
 
   const config = await loadGoogleConfig();
   if (!config.enabled) {

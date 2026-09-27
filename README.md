@@ -627,10 +627,21 @@ not a replacement.
 
 1. Google Cloud Console → **APIs & Services → Credentials → Create credentials →
    OAuth client ID → Web application**.
-2. Under **Authorized JavaScript origins** add `http://localhost:3000`, and your real
-   `https://` domain if you have one. Origins must match exactly — Google will not
-   accept a bare LAN IP, so testing from a phone needs the same domain or tunnel the
-   PWA already needs.
+2. Under **Authorized JavaScript origins** add every address you open the site at —
+   for this setup that is:
+
+   ```
+   http://localhost
+   http://localhost:3000
+   https://warpx.online
+   ```
+
+   plus `https://www.warpx.online` if you use it. Both localhost entries are
+   needed: Google's own guidance for testing on localhost is to register it with
+   *and* without the port. Origins must match exactly — scheme, host and port, no
+   trailing slash, no path. Leave **Authorized redirect URIs** empty; this flow
+   doesn't use them. Google will not accept a bare LAN IP, so testing from a phone
+   needs the same domain the PWA already needs.
 3. Paste the **Client ID** into `config.js`:
 
 ```js
@@ -656,7 +667,20 @@ renders it into every page for every visitor, so it is public by design.
 **With `config.js` left empty, the button never renders and every page behaves exactly
 as it did before** — no dead control, no console errors. The same is true if Google's
 script can't load (blocked network, offline): the container hides itself and the
-phone + password form carries on.
+phone + password form carries on. It also hides on an address Google can never
+accept — plain `http://` anywhere but localhost, a raw IP like `192.168.1.5`, or
+a `.local` name — and says why in the browser console.
+
+### If Google says "Access blocked"
+
+On Google's error page, click **see error details**: the `origin=…` it shows is
+the exact string Google is comparing.
+
+| Error | Cause | Fix |
+| --- | --- | --- |
+| `400: origin_mismatch` | That origin isn't registered on the OAuth client | Add it under **Authorized JavaScript origins** (step 2). Check you're editing the client whose ID is in `config.js` — changing a different one does nothing. Google says a change takes 5 minutes to a few hours; retry in a private window |
+| `403: access_denied` | The consent screen is in **Testing**, and this Google account isn't a test user | Console → **Audience** → add the address as a test user, or publish the app. Email and profile are basic scopes, so publishing needs no Google review |
+| `origin=` is a `192.168…` or `.local` address | Google refuses those outright; no setting fixes it | Use `https://warpx.online` on the phone, or `http://localhost:3000` on the Mac. The button now hides itself on these addresses |
 
 ### The token is verified server-side
 

@@ -203,6 +203,44 @@ function getWarpxUser() {
   catch (e) { return null; }
 }
 
+/* fetch() for anything that needs the customer signed in. The server knows who
+   someone is from an HttpOnly session cookie the browser sends by itself;
+   warpx_user in localStorage is only the name and number the pages display.
+   When the two disagree — the session expired, they logged out in another
+   tab, or they last logged in before sessions existed — the server answers
+   401 with authRequired "user". The stale copy is dropped and they're sent to
+   log in and brought straight back to this page. */
+async function apiFetch(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    let data = null;
+    try { data = await res.clone().json(); } catch (e) {}
+    if (data && data.authRequired === "user") {
+      localStorage.removeItem("warpx_user");
+      showToast("Please log in again.");
+      const here = window.location.pathname.split("/").pop() || "index.html";
+      setTimeout(() => { window.location.href = "login.html?redirect=" + encodeURIComponent(here); }, 900);
+      // Never settles: the page is leaving, and the caller would only show a
+      // second, confusing error on the way out.
+      return new Promise(() => {});
+    }
+  }
+  return res;
+}
+
+// Ends the server session too, so the cookie stops working even if someone
+// copied it. Best effort: the local sign-out happens either way.
+async function logoutCustomer() {
+  try {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "user" }),
+    });
+  } catch (e) {}
+  localStorage.removeItem("warpx_user");
+}
+
 function showOrderModal(orderNumber, eta, persisted, paymentLabel, deliveryOtp, scheduledFor) {
   const modalBody = document.getElementById("modalBody");
   if (modalBody) {

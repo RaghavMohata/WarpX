@@ -2,8 +2,12 @@
    backed by SQLite (warpx.db, created automatically on first run). */
 const express = require("express");
 const crypto = require("crypto");
+const fs = require("fs");
 const path = require("path");
 const db = require("./db");
+const sessions = require("./lib/session");
+const secrets = require("./lib/secrets");
+const { createLimiter } = require("./lib/ratelimit");
 const { classifyZone } = require("./lib/zone");
 const { hashPassword, verifyPassword } = require("./lib/auth");
 const googleAuth = require("./lib/google");
@@ -17,19 +21,117 @@ const { PICASSO_MENU } = require("./js/menu-data");
 const config = require("./config");
 
 const app = express();
-// Correct behind a reverse proxy (Caddy/nginx) so req.ip and req.protocol
-// reflect the real visitor rather than the proxy itself — matters the day
-// this gets IP-based rate limiting or logging, neither of which exist yet.
-app.set("trust proxy", true);
+/* Believe X-Forwarded-For / -Proto only from a proxy on this same machine —
+   ngrok's agent and Caddy both connect from localhost. With `true`, any
+   visitor could send their own X-Forwarded-For and pick the IP the login
+   rate limits below count against, and claim HTTPS to get a Secure cookie. */
+app.set("trust proxy", "loopback");
 app.use(express.json());
-app.use(express.static(__dirname));
+
+/* ---- What the web server hands out ----------------------------------------
+   Only the site itself. This used to be express.static(__dirname), which
+   served the whole project folder: warpx.db (every customer, every password
+   hash, every delivery code), warpx-secrets.json, server.js, config.js — to
+   anyone who typed the file name after the domain. Now it's an allowlist: the
+   pages, the service worker and manifest, the css/js/img folders, and the
+   three lib/ files the browser genuinely runs. Anything else is a 404. */
+const PUBLIC_ROOT_FILES = new Set([
+  ...fs.readdirSync(__dirname).filter((f) => f.endsWith(".html")),
+  "sw.js",
+  "manifest.webmanifest",
+]);
+const PUBLIC_LIB_FILES = new Set(["fee.js", "schedule.js", "weekly.js"]);
+
+for (const dir of ["css", "js", "img"]) {
+  app.use(`/${dir}`, express.static(path.join(__dirname, dir), { fallthrough: false }));
+}
+app.get("/lib/:file", (req, res, next) => {
+  if (!PUBLIC_LIB_FILES.has(req.params.file)) return next();
+  res.sendFile(path.join(__dirname, "lib", req.params.file));
+});
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
+app.get("/:file", (req, res, next) => {
+  if (!PUBLIC_ROOT_FILES.has(req.params.file)) return next();
+  res.sendFile(path.join(__dirname, req.params.file));
+});
+
+/* ---- Who is asking --------------------------------------------------------
+   Every route below that touches an order, an address or a person runs one of
+   three guards. Each takes identity from the session cookie (lib/session.js),
+   never from a userId or driverId in the request — those used to be the whole
+   of the "security", and anyone could type a different number. */
+const SECRETS = secrets.load();
+
+const AUTH_MESSAGES = {
+  user: "Please log in again.",
+  driver: "Please sign in to the Driver Hub again.",
+  admin: "Owner login required.",
+};
+// authRequired tells the page which login to send the person back to.
+function authRequired(res, kind, message) {
+  return res.status(401).json({ error: message || AUTH_MESSAGES[kind], authRequired: kind });
+}
+
+// n8n calls back from the same Mac with `Authorization: Bearer <N8N_API_KEY>`.
+function hasServiceKey(req) {
+  const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || "");
+  return Boolean(m) && secrets.safeEqual(m[1].trim(), SECRETS.n8nKey);
+}
+
+/* A userId the page sent that isn't the signed-in account means the page is
+   stale (someone logged in as somebody else in another tab). Acting on either
+   identity would be a guess, so the page is sent back to log in. Absent is
+   fine — the session alone says who it is. */
+function claims(req, claimed) {
+  return claimed === undefined || claimed === null || claimed === "" || Number(claimed) === req.userId;
+}
+
+function requireUser(req, res, next) {
+  const s = sessions.findSession(db, "user", sessions.readToken(req, "user"));
+  const user = s && db.prepare("SELECT id FROM users WHERE id = ?").get(s.subject_id);
+  if (!user) return authRequired(res, "user");
+  req.userId = user.id;
+  next();
+}
+
+// Re-checks approval on every request, so rejecting a driver in the dashboard
+// takes their hub away immediately rather than whenever their cookie expires.
+function requireDriver(req, res, next) {
+  const s = sessions.findSession(db, "driver", sessions.readToken(req, "driver"));
+  const driver = s && db.prepare("SELECT * FROM drivers WHERE id = ?").get(s.subject_id);
+  if (!driver) return authRequired(res, "driver");
+  if (driver.status !== "approved") return authRequired(res, "driver", "Your Driver Hub access is switched off. Get in touch with the owner.");
+  req.driverId = driver.id;
+  req.driver = driver;
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (hasServiceKey(req)) return next();
+  const s = sessions.findSession(db, "admin", sessions.readToken(req, "admin"));
+  if (!s || s.fingerprint !== SECRETS.adminFingerprint) return authRequired(res, "admin");
+  next();
+}
+
+/* Failed-attempt limits (lib/ratelimit.js). Keyed on req.ip, which the trust
+   proxy setting above makes the real visitor even through ngrok. */
+const loginLimiter = createLimiter({ max: 20, windowMs: 15 * 60 * 1000 });
+const adminLimiter = createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
+const signupLimiter = createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
+// Per order, not per IP: 10,000 possible codes is only safe if nobody can try them all.
+const otpLimiter = createLimiter({ max: 5, windowMs: 15 * 60 * 1000 });
+
+function tooMany(res, limiter, key, message) {
+  res.set("Retry-After", String(limiter.retryAfter(key)));
+  return res.status(429).json({ error: message || "Too many attempts. Wait a few minutes and try again." });
+}
 
 function getLatestLocation(userId) {
   return db.prepare("SELECT * FROM locations WHERE user_id = ? ORDER BY id DESC LIMIT 1").get(userId);
 }
 
 function publicUser(row) {
-  return { id: row.id, name: row.name, phone: row.phone };
+  return { id: row.id, name: row.name, phone: row.phone, email: row.email || null };
 }
 
 // The delivery OTP is the customer's proof that a handover actually happened,
@@ -97,8 +199,9 @@ function notifyN8nStatus(order, status) {
 
 /* Order confirmation email to the *customer*, via its own n8n webhook so the
    delivery OTP only ever travels to the customer's workflow — never the owner's
-   (N8N_WEBHOOK_URL above), which is why that payload still has no OTP. Only
-   customers who signed in with Google have an email; everyone else is skipped. */
+   (N8N_WEBHOOK_URL above), which is why that payload still has no OTP. Sent to
+   anyone with an email on file — from Google sign-in, or typed at sign-up;
+   everyone else is skipped. */
 function notifyN8nCustomer({ userId, orderNumber, total, paymentMethod, etaMin, scheduledFor, deliveryOtp }) {
   const url = process.env.N8N_CUSTOMER_WEBHOOK_URL || config.N8N_CUSTOMER_WEBHOOK_URL;
   if (!url) return;
@@ -185,6 +288,7 @@ app.post("/api/auth/google", async (req, res) => {
     db.prepare("UPDATE users SET email = ?, avatar_url = ?, name = COALESCE(name, ?) WHERE id = ?")
       .run(profile.email, profile.picture, profile.name, existing.id);
     const row = db.prepare("SELECT * FROM users WHERE id = ?").get(existing.id);
+    sessions.startSession(db, req, res, "user", row.id);
     return res.json({ status: "signed-in", user: googleUserResponse(row) });
   }
 
@@ -202,6 +306,9 @@ app.post("/api/auth/google", async (req, res) => {
 
 app.post("/api/auth/google/complete", (req, res) => {
   const { ticket, phone, password, name } = req.body || {};
+  // Linking checks an account password, so it shares the login limit —
+  // otherwise this would be a way round it.
+  if (loginLimiter.blocked(req.ip)) return tooMany(res, loginLimiter, req.ip);
   const profile = googleAuth.readTicket(ticket);
   if (!profile) {
     return res.status(410).json({ error: "That sign-in timed out. Tap the Google button again." });
@@ -223,6 +330,7 @@ app.post("/api/auth/google/complete", (req, res) => {
         return res.status(401).json({ error: "That number already has a WarpX account. Enter its password to link them.", needsPassword: true });
       }
       if (!verifyPassword(password, existing.password_hash, existing.password_salt)) {
+        loginLimiter.fail(req.ip);
         return res.status(401).json({ error: "That password doesn't match the account for this number.", needsPassword: true });
       }
     }
@@ -230,6 +338,7 @@ app.post("/api/auth/google/complete", (req, res) => {
       .run(profile.sub, profile.email, profile.picture, profile.name, existing.id);
     googleAuth.consumeTicket(ticket);
     const row = db.prepare("SELECT * FROM users WHERE id = ?").get(existing.id);
+    sessions.startSession(db, req, res, "user", row.id);
     return res.json({ status: "linked", user: googleUserResponse(row) });
   }
 
@@ -243,6 +352,7 @@ app.post("/api/auth/google/complete", (req, res) => {
   }
   googleAuth.consumeTicket(ticket);
   const row = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
+  sessions.startSession(db, req, res, "user", row.id);
   res.json({ status: "created", user: googleUserResponse(row) });
 });
 
@@ -265,6 +375,7 @@ app.post("/api/auth/google/driver", async (req, res) => {
     if (linked.status !== "approved") {
       return res.status(403).json({ error: "Your application isn't approved yet. We'll call you once it is." });
     }
+    sessions.startSession(db, req, res, "driver", linked.id);
     return res.json({ status: "signed-in", driver: { id: linked.id, name: linked.name, phone: linked.phone, vehicleType: linked.vehicle_type } });
   }
   res.json({ status: "needs-phone", ticket: googleAuth.createTicket(profile), email: profile.email, name: profile.name });
@@ -287,47 +398,101 @@ app.post("/api/auth/google/driver/complete", (req, res) => {
 
   db.prepare("UPDATE drivers SET google_sub = ?, email = ? WHERE id = ?").run(profile.sub, profile.email, driver.id);
   googleAuth.consumeTicket(ticket);
+  sessions.startSession(db, req, res, "driver", driver.id);
   res.json({ status: "linked", driver: { id: driver.id, name: driver.name, phone: driver.phone, vehicleType: driver.vehicle_type } });
 });
 
 // The owner's undo, for a link made to the wrong number.
-app.delete("/api/drivers/:id/google", (req, res) => {
+app.delete("/api/drivers/:id/google", requireAdmin, (req, res) => {
   const info = db.prepare("UPDATE drivers SET google_sub = NULL, email = NULL WHERE id = ?").run(Number(req.params.id));
   if (info.changes === 0) return res.status(404).json({ error: "No such driver." });
   res.json({ ok: true });
 });
 
+/* Optional at sign-up: a customer who gives one gets the same order
+   confirmation email (with their delivery code) that Google customers get —
+   notifyN8nCustomer() sends to whoever has users.email. Not verified, so a
+   typo only means someone else's inbox gets one confirmation; the code in it
+   is useless to anyone but the driver standing at the door. */
+function cleanEmail(value) {
+  const email = String(value || "").trim().toLowerCase();
+  if (!email) return { ok: true, email: null };
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "That email doesn't look right — check it, or leave it empty." };
+  }
+  return { ok: true, email };
+}
+
 // Create a new account — phone + password, hashed with a per-user salt.
 app.post("/api/auth/signup", (req, res) => {
-  const { name, phone, password } = req.body || {};
+  const { name, phone, password, email } = req.body || {};
+  // Counted per attempt, not per failure: this is what stops a script filling
+  // the table with fake accounts, and nobody signs up ten times in a sitting.
+  if (signupLimiter.blocked(req.ip)) return tooMany(res, signupLimiter, req.ip);
+  signupLimiter.fail(req.ip);
   if (!phone || !password) return res.status(400).json({ error: "Phone and password are required." });
   if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters." });
+  const checkedEmail = cleanEmail(email);
+  if (!checkedEmail.ok) return res.status(400).json({ error: checkedEmail.error });
 
   const existing = db.prepare("SELECT id FROM users WHERE phone = ?").get(phone);
   if (existing) return res.status(409).json({ error: "An account with this phone number already exists — try logging in instead." });
 
   const { hash, salt } = hashPassword(password);
   const info = db
-    .prepare("INSERT INTO users (name, phone, password_hash, password_salt) VALUES (?, ?, ?, ?)")
-    .run(name || null, phone, hash, salt);
-  res.json(publicUser(db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid)));
+    .prepare("INSERT INTO users (name, phone, email, password_hash, password_salt) VALUES (?, ?, ?, ?, ?)")
+    .run(name || null, phone, checkedEmail.email, hash, salt);
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
+  sessions.startSession(db, req, res, "user", user.id);
+  res.json(publicUser(user));
 });
 
 // Log into an existing account.
 app.post("/api/auth/login", (req, res) => {
   const { phone, password } = req.body || {};
+  if (loginLimiter.blocked(req.ip)) return tooMany(res, loginLimiter, req.ip);
   if (!phone || !password) return res.status(400).json({ error: "Phone and password are required." });
 
   const user = db.prepare("SELECT * FROM users WHERE phone = ?").get(phone);
   if (!user || !verifyPassword(password, user.password_hash, user.password_salt)) {
+    loginLimiter.fail(req.ip);
     return res.status(401).json({ error: "Incorrect phone number or password." });
   }
+  sessions.startSession(db, req, res, "user", user.id);
   res.json(publicUser(user));
 });
 
+// Signs out one kind of session: the customer, the driver or the owner.
+app.post("/api/auth/logout", (req, res) => {
+  const kind = (req.body || {}).kind;
+  if (!sessions.COOKIE[kind]) return res.status(400).json({ error: "kind must be user, driver or admin." });
+  sessions.endSession(db, req, res, kind);
+  res.json({ ok: true });
+});
+
+/* ---- The owner ------------------------------------------------------------
+   The dashboard used to compare a PIN inside admin.html — readable by anyone
+   with view-source — and the API behind it checked nothing. The password now
+   lives in warpx-secrets.json on the server and is checked here. */
+app.post("/api/admin/login", (req, res) => {
+  if (adminLimiter.blocked(req.ip)) return tooMany(res, adminLimiter, req.ip);
+  const { password } = req.body || {};
+  if (!password || !secrets.safeEqual(password, SECRETS.adminPassword)) {
+    adminLimiter.fail(req.ip);
+    return res.status(401).json({ error: "Wrong password." });
+  }
+  adminLimiter.reset(req.ip);
+  sessions.startSession(db, req, res, "admin", null, SECRETS.adminFingerprint);
+  res.json({ ok: true });
+});
+
+// Lets admin.html decide between the dashboard and the login box on load.
+app.get("/api/admin/session", requireAdmin, (req, res) => res.json({ ok: true }));
+
 // Save a captured location and compute the delivery zone/ETA server-side.
-app.post("/api/users/:id/location", (req, res) => {
-  const userId = Number(req.params.id);
+app.post("/api/users/:id/location", requireUser, (req, res) => {
+  if (!claims(req, req.params.id)) return authRequired(res, "user");
+  const userId = req.userId;
   const { lat, lng, method, accuracy, address } = req.body || {};
   if (lat == null || lng == null) return res.status(400).json({ error: "lat/lng are required" });
 
@@ -340,8 +505,9 @@ app.post("/api/users/:id/location", (req, res) => {
   res.json(zoneInfo);
 });
 
-app.get("/api/users/:id/location", (req, res) => {
-  res.json(getLatestLocation(Number(req.params.id)) || null);
+app.get("/api/users/:id/location", requireUser, (req, res) => {
+  if (!claims(req, req.params.id)) return authRequired(res, "user");
+  res.json(getLatestLocation(req.userId) || null);
 });
 
 /* ---- Saved addresses (Home / Shop / Mom's) --------------------------------
@@ -367,15 +533,17 @@ function cleanLabel(label) {
   return String(label || "").trim().slice(0, 24);
 }
 
-app.get("/api/users/:id/addresses", (req, res) => {
+app.get("/api/users/:id/addresses", requireUser, (req, res) => {
+  if (!claims(req, req.params.id)) return authRequired(res, "user");
   const rows = db
     .prepare("SELECT * FROM addresses WHERE user_id = ? ORDER BY is_default DESC, id DESC")
-    .all(Number(req.params.id));
+    .all(req.userId);
   res.json(rows);
 });
 
-app.post("/api/users/:id/addresses", (req, res) => {
-  const userId = Number(req.params.id);
+app.post("/api/users/:id/addresses", requireUser, (req, res) => {
+  if (!claims(req, req.params.id)) return authRequired(res, "user");
+  const userId = req.userId;
   const { label, address, lat, lng, makeDefault } = req.body || {};
   if (lat == null || lng == null) {
     return res.status(400).json({ error: "An address needs coordinates — capture the location first." });
@@ -399,10 +567,12 @@ app.post("/api/users/:id/addresses", (req, res) => {
   res.json(db.prepare("SELECT * FROM addresses WHERE id = ?").get(info.lastInsertRowid));
 });
 
-app.patch("/api/addresses/:id", (req, res) => {
+app.patch("/api/addresses/:id", requireUser, (req, res) => {
   const id = Number(req.params.id);
-  const { userId, label, address, lat, lng, makeDefault } = req.body || {};
-  const existing = db.prepare("SELECT * FROM addresses WHERE id = ? AND user_id = ?").get(id, Number(userId));
+  const { label, address, lat, lng, makeDefault } = req.body || {};
+  if (!claims(req, (req.body || {}).userId)) return authRequired(res, "user");
+  const userId = req.userId;
+  const existing = db.prepare("SELECT * FROM addresses WHERE id = ? AND user_id = ?").get(id, userId);
   if (!existing) return res.status(404).json({ error: "That address isn't yours, or no longer exists." });
 
   const name = label === undefined ? existing.label : cleanLabel(label);
@@ -419,16 +589,17 @@ app.patch("/api/addresses/:id", (req, res) => {
      WHERE id = ? AND user_id = ?`
   ).run(
     name, address === undefined ? existing.address : address || null,
-    newLat, newLng, zoneInfo.zone, zoneInfo.distanceKm, zoneInfo.etaMin, id, Number(userId)
+    newLat, newLng, zoneInfo.zone, zoneInfo.distanceKm, zoneInfo.etaMin, id, userId
   );
 
-  if (makeDefault) setDefaultAddress(Number(userId), id);
+  if (makeDefault) setDefaultAddress(userId, id);
   res.json(db.prepare("SELECT * FROM addresses WHERE id = ?").get(id));
 });
 
-app.delete("/api/addresses/:id", (req, res) => {
+app.delete("/api/addresses/:id", requireUser, (req, res) => {
   const id = Number(req.params.id);
-  const userId = Number(req.query.userId || (req.body || {}).userId);
+  if (!claims(req, req.query.userId ?? (req.body || {}).userId)) return authRequired(res, "user");
+  const userId = req.userId;
   const existing = db.prepare("SELECT * FROM addresses WHERE id = ? AND user_id = ?").get(id, userId);
   if (!existing) return res.status(404).json({ error: "That address isn't yours, or no longer exists." });
 
@@ -499,14 +670,13 @@ function insertOrderWithItems({ userId, priced, subtotal, deliveryFee, method, u
 // Requires a logged-in account: orders are never anonymous.
 // Weekly vegetable plans do NOT come through here: a plan is several orders
 // that must be created together, so it has its own endpoint below.
-app.post("/api/orders", (req, res) => {
-  const { userId, items, paymentMethod, upiId, addressId, scheduleDate, scheduleTime } = req.body || {};
+app.post("/api/orders", requireUser, (req, res) => {
+  const { items, paymentMethod, upiId, addressId, scheduleDate, scheduleTime } = req.body || {};
+  if (!claims(req, (req.body || {}).userId)) return authRequired(res, "user");
+  const userId = req.userId;
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "items are required" });
   }
-  if (!userId) return res.status(401).json({ error: "Please log in to place an order." });
-  const user = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
-  if (!user) return res.status(401).json({ error: "Please log in to place an order." });
 
   const method = paymentMethod === "upi" ? "upi" : "cod";
 
@@ -624,14 +794,14 @@ function currentActiveWeeklyWindow() {
 }
 
 // Every weekly window, newest first, with what it collected — owner use.
-app.get("/api/admin/weekly/windows", (req, res) => {
+app.get("/api/admin/weekly/windows", requireAdmin, (req, res) => {
   const windows = db.prepare("SELECT * FROM weekly_windows ORDER BY id DESC").all();
   const orderStmt = db.prepare("SELECT COUNT(*) AS n FROM orders WHERE weekly_window_id = ?");
   const planStmt = db.prepare("SELECT COUNT(*) AS n FROM weekly_plans WHERE window_id = ?");
   res.json(windows.map((w) => ({ ...w, orderCount: orderStmt.get(w.id).n, planCount: planStmt.get(w.id).n })));
 });
 
-app.post("/api/admin/weekly/windows", (req, res) => {
+app.post("/api/admin/weekly/windows", requireAdmin, (req, res) => {
   const { cutoffDate, cutoffTime, weekStartDate, slotCapacity } = req.body || {};
   if (currentActiveWeeklyWindow()) {
     return res.status(409).json({ error: "There's already a week in progress — finish its deliveries before opening another." });
@@ -660,7 +830,7 @@ app.post("/api/admin/weekly/windows", (req, res) => {
 });
 
 // The owner's manual early cutoff — stops submissions even before cutoff_at.
-app.patch("/api/admin/weekly/windows/:id/close", (req, res) => {
+app.patch("/api/admin/weekly/windows/:id/close", requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const w = db.prepare("SELECT * FROM weekly_windows WHERE id = ?").get(id);
   if (!w) return res.status(404).json({ error: "No such weekly window." });
@@ -674,10 +844,11 @@ app.patch("/api/admin/weekly/windows/:id/close", (req, res) => {
    this, coming back to the page would look like nothing was ever ordered.
    Also returns their most recent previous plan, which powers "copy last week"
    so a regular doesn't retype the same vegetables every week. */
-app.get("/api/weekly/plans/mine", (req, res) => {
-  const userId = Number(req.query.userId);
+app.get("/api/weekly/plans/mine", requireUser, (req, res) => {
+  if (!claims(req, req.query.userId)) return authRequired(res, "user");
+  const userId = req.userId;
   const windowId = Number(req.query.windowId);
-  if (!userId || !windowId) return res.status(400).json({ error: "userId and windowId are required." });
+  if (!windowId) return res.status(400).json({ error: "windowId is required." });
 
   const window = db.prepare("SELECT * FROM weekly_windows WHERE id = ?").get(windowId);
   if (!window) return res.status(404).json({ error: "No such week." });
@@ -722,12 +893,10 @@ app.get("/api/weekly/plans/mine", (req, res) => {
    POST /api/orders from the browser isn't an option — a failure halfway
    through would leave someone holding half a week, and the slot check would
    race against itself across the requests. */
-app.post("/api/weekly/plans", (req, res) => {
-  const { userId, windowId, slotId, addressId, paymentMethod, upiId, days } = req.body || {};
-
-  if (!userId) return res.status(401).json({ error: "Please log in to plan your week." });
-  const user = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
-  if (!user) return res.status(401).json({ error: "Please log in to plan your week." });
+app.post("/api/weekly/plans", requireUser, (req, res) => {
+  const { windowId, slotId, addressId, paymentMethod, upiId, days } = req.body || {};
+  if (!claims(req, (req.body || {}).userId)) return authRequired(res, "user");
+  const userId = req.userId;
 
   const window = db.prepare("SELECT * FROM weekly_windows WHERE id = ?").get(Number(windowId));
   if (!isWindowOpen(window)) {
@@ -865,9 +1034,10 @@ app.post("/api/weekly/plans", (req, res) => {
 
 // Cancel a week before the cutoff. Without this, "edit your plan" leaves
 // someone holding orders they have no way to call off.
-app.delete("/api/weekly/plans/:id", (req, res) => {
+app.delete("/api/weekly/plans/:id", requireUser, (req, res) => {
   const id = Number(req.params.id);
-  const userId = Number(req.query.userId || (req.body || {}).userId);
+  if (!claims(req, req.query.userId ?? (req.body || {}).userId)) return authRequired(res, "user");
+  const userId = req.userId;
   const plan = db.prepare("SELECT * FROM weekly_plans WHERE id = ? AND user_id = ?").get(id, userId);
   if (!plan) return res.status(404).json({ error: "That plan isn't yours, or no longer exists." });
 
@@ -894,7 +1064,7 @@ app.delete("/api/weekly/plans/:id", (req, res) => {
 });
 
 // Every order in a window, for the owner's review list.
-app.get("/api/admin/weekly/windows/:id/orders", (req, res) => {
+app.get("/api/admin/weekly/windows/:id/orders", requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const orders = db
     .prepare(
@@ -956,7 +1126,7 @@ function weeklyDayOrError(window, deliveryDate) {
 
 // Computes a day's route split without saving anything, so the owner can see
 // it before committing.
-app.post("/api/admin/weekly/windows/:id/preview-routes", (req, res) => {
+app.post("/api/admin/weekly/windows/:id/preview-routes", requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const w = db.prepare("SELECT * FROM weekly_windows WHERE id = ?").get(id);
   if (!w) return res.status(404).json({ error: "No such weekly window." });
@@ -969,7 +1139,7 @@ app.post("/api/admin/weekly/windows/:id/preview-routes", (req, res) => {
   }
 });
 
-app.post("/api/admin/weekly/windows/:id/assign-routes", (req, res) => {
+app.post("/api/admin/weekly/windows/:id/assign-routes", requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const w = db.prepare("SELECT * FROM weekly_windows WHERE id = ?").get(id);
   if (!w) return res.status(404).json({ error: "No such weekly window." });
@@ -1016,8 +1186,9 @@ app.post("/api/admin/weekly/windows/:id/assign-routes", (req, res) => {
   res.json(result);
 });
 
-// All orders across all customers — for the owner's dashboard (admin.html).
-app.get("/api/orders", (req, res) => {
+// All orders across all customers — for the owner's dashboard (admin.html),
+// and for n8n workflows that summarise the day.
+app.get("/api/orders", requireAdmin, (req, res) => {
   const orders = db
     .prepare(
       `SELECT orders.*, users.name AS customer_name, users.phone AS customer_phone,
@@ -1037,7 +1208,7 @@ app.get("/api/orders", (req, res) => {
 // Orders nobody has picked up yet — the driver app's job board.
 // Registered before /api/orders/:userId, otherwise "available" would be
 // swallowed by that route and parsed as a (NaN) user id.
-app.get("/api/orders/available", (req, res) => {
+app.get("/api/orders/available", requireDriver, (req, res) => {
   const orders = db
     .prepare(
       // weekly_window_id IS NULL: a weekly grocery order is never
@@ -1060,10 +1231,11 @@ app.get("/api/orders/available", (req, res) => {
   }));
 });
 
-// Order history for a single user.
-app.get("/api/orders/:userId", (req, res) => {
-  const userId = Number(req.params.userId);
-  const orders = db.prepare("SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC").all(userId);
+// Order history for a single user — their own, and only their own. This is
+// the one response that carries delivery codes.
+app.get("/api/orders/:userId", requireUser, (req, res) => {
+  if (!claims(req, req.params.userId)) return authRequired(res, "user");
+  const orders = db.prepare("SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC").all(req.userId);
   const itemsStmt = db.prepare("SELECT * FROM order_items WHERE order_id = ?");
   res.json(orders.map((o) => ({ ...o, items: itemsStmt.all(o.id) })));
 });
@@ -1073,7 +1245,7 @@ app.get("/api/orders/:userId", (req, res) => {
 // would render as an unknown step, so it is rejected rather than stored.
 const ORDER_STATUSES = ["placed", "preparing", "out for delivery", "delivered"];
 
-app.patch("/api/orders/:id/status", (req, res) => {
+app.patch("/api/orders/:id/status", requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const { status } = req.body || {};
   if (!status) return res.status(400).json({ error: "status is required" });
@@ -1099,13 +1271,26 @@ app.patch("/api/orders/:id/status", (req, res) => {
 /* A driver marking an order collected. Claiming an order is not the same as
    having it in your hands, so this is a separate, driver-driven step rather
    than something inferred from the claim. */
-app.patch("/api/orders/:id/pickup", (req, res) => {
+/* The driver's own session, or n8n acting for a driver: a delivery partner who
+   replies "picked up" in Telegram reaches here through the n8n workflow, which
+   sends the key and says which driver it's speaking for. */
+function driverOrServiceKey(req, res, next) {
+  if (hasServiceKey(req)) {
+    req.driverId = Number((req.body || {}).driverId);
+    return next();
+  }
+  requireDriver(req, res, next);
+}
+
+app.patch("/api/orders/:id/pickup", driverOrServiceKey, (req, res) => {
   const id = Number(req.params.id);
-  const { driverId } = req.body || {};
-  const order = db.prepare("SELECT * FROM orders WHERE id = ? AND driver_id = ?").get(id, Number(driverId));
+  const driverId = req.driverId;
+  const claimed = (req.body || {}).driverId;
+  if (claimed != null && claimed !== "" && Number(claimed) !== driverId) return authRequired(res, "driver");
+  const order = db.prepare("SELECT * FROM orders WHERE id = ? AND driver_id = ?").get(id, driverId);
   if (!order) return res.status(403).json({ error: "That order isn't assigned to you." });
   if (order.status === "delivered") return res.status(409).json({ error: "That order is already delivered." });
-  db.prepare("UPDATE orders SET status = 'out for delivery' WHERE id = ? AND driver_id = ?").run(id, Number(driverId));
+  db.prepare("UPDATE orders SET status = 'out for delivery' WHERE id = ? AND driver_id = ?").run(id, driverId);
   if (order.status !== "out for delivery") notifyN8nStatus(order, "out for delivery");
   res.json({ id, status: "out for delivery" });
 });
@@ -1229,7 +1414,7 @@ function payoutRows() {
   });
 }
 
-app.get("/api/admin/payouts", (req, res) => {
+app.get("/api/admin/payouts", requireAdmin, (req, res) => {
   const rows = payoutRows();
   const round = (v) => Math.round(v * 100) / 100;
   res.json({
@@ -1240,7 +1425,7 @@ app.get("/api/admin/payouts", (req, res) => {
   });
 });
 
-app.post("/api/admin/payouts", (req, res) => {
+app.post("/api/admin/payouts", requireAdmin, (req, res) => {
   const { driverId, day, note } = req.body || {};
   const row = payoutRows().find((r) => r.driverId === Number(driverId) && r.day === day);
   if (!row) return res.status(404).json({ error: "No deliveries for that driver on that day." });
@@ -1259,15 +1444,16 @@ app.post("/api/admin/payouts", (req, res) => {
   }
 });
 
-app.delete("/api/admin/payouts/:id", (req, res) => {
+app.delete("/api/admin/payouts/:id", requireAdmin, (req, res) => {
   const info = db.prepare("DELETE FROM payouts WHERE id = ?").run(Number(req.params.id));
   if (info.changes === 0) return res.status(404).json({ error: "No such payout record." });
   res.json({ ok: true });
 });
 
 // A driver's own settlement history — the side that actually cares.
-app.get("/api/drivers/:id/payouts", (req, res) => {
-  const id = Number(req.params.id);
+app.get("/api/drivers/:id/payouts", requireDriver, (req, res) => {
+  if (Number(req.params.id) !== req.driverId) return authRequired(res, "driver");
+  const id = req.driverId;
   const rows = payoutRows().filter((r) => r.driverId === id);
   const round = (v) => Math.round(v * 100) / 100;
   res.json({
@@ -1277,7 +1463,7 @@ app.get("/api/drivers/:id/payouts", (req, res) => {
   });
 });
 
-app.get("/api/admin/earnings", (req, res) => {
+app.get("/api/admin/earnings", requireAdmin, (req, res) => {
   res.json({
     today: earningsBetween("date('now', 'localtime')"),
     week: earningsBetween("date('now', 'localtime', '-6 days')"),
@@ -1288,12 +1474,13 @@ app.get("/api/admin/earnings", (req, res) => {
   });
 });
 
-app.get("/api/drivers", (req, res) => {
+// Every application, with phone numbers — owner only.
+app.get("/api/drivers", requireAdmin, (req, res) => {
   res.json(db.prepare("SELECT * FROM drivers ORDER BY id DESC").all());
 });
 
 // Approve/reject a driver application.
-app.patch("/api/drivers/:id/status", (req, res) => {
+app.patch("/api/drivers/:id/status", requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const { status } = req.body || {};
   if (!["pending", "approved", "rejected"].includes(status)) {
@@ -1305,13 +1492,16 @@ app.patch("/api/drivers/:id/status", (req, res) => {
 
 // Driver sign-in for driver.html. Phone-only on purpose: drivers never set a
 // password (they only ever filled in the careers form), so this identifies
-// rather than authenticates — see the README's caveat about that.
+// rather than authenticates — see the README's caveat about that. The failure
+// limit stops a script walking through phone numbers looking for one that works.
 app.post("/api/drivers/login", (req, res) => {
   const { phone } = req.body || {};
+  if (loginLimiter.blocked(req.ip)) return tooMany(res, loginLimiter, req.ip);
   if (!phone) return res.status(400).json({ error: "Enter the mobile number you applied with." });
 
   const driver = db.prepare("SELECT * FROM drivers WHERE phone = ? ORDER BY id DESC").get(phone);
   if (!driver) {
+    loginLimiter.fail(req.ip);
     return res.status(404).json({ error: "No application found for that number — apply on the Work With Us page first." });
   }
   if (driver.status === "pending") {
@@ -1320,6 +1510,7 @@ app.post("/api/drivers/login", (req, res) => {
   if (driver.status === "rejected") {
     return res.status(403).json({ error: "This application wasn't approved. Get in touch if you think that's a mistake." });
   }
+  sessions.startSession(db, req, res, "driver", driver.id);
   res.json({ id: driver.id, name: driver.name, phone: driver.phone, vehicleType: driver.vehicle_type });
 });
 
@@ -1352,10 +1543,10 @@ function secondsUntilReset(now = new Date()) {
   return Math.max(0, Math.round((midnight.getTime() - now.getTime()) / 1000));
 }
 
-app.get("/api/drivers/:id/summary", (req, res) => {
-  const id = Number(req.params.id);
-  const driver = db.prepare("SELECT * FROM drivers WHERE id = ?").get(id);
-  if (!driver) return res.status(404).json({ error: "Driver not found." });
+app.get("/api/drivers/:id/summary", requireDriver, (req, res) => {
+  if (Number(req.params.id) !== req.driverId) return authRequired(res, "driver");
+  const id = req.driverId;
+  const driver = req.driver;
 
   const stats = driverDayStats(id);
   const progress = tierFor(stats.today);
@@ -1398,13 +1589,12 @@ app.get("/api/drivers/:id/summary", (req, res) => {
 // Claim an unassigned order. The `driver_id IS NULL` guard in the UPDATE is
 // what stops two drivers grabbing the same order — whoever's write lands
 // second changes 0 rows and gets told it's already taken.
-app.patch("/api/orders/:id/claim", (req, res) => {
+app.patch("/api/orders/:id/claim", requireDriver, (req, res) => {
   const id = Number(req.params.id);
-  const { driverId } = req.body || {};
-  const driver = db.prepare("SELECT * FROM drivers WHERE id = ?").get(driverId);
-  if (!driver || driver.status !== "approved") {
-    return res.status(403).json({ error: "Only approved drivers can accept orders." });
-  }
+  const claimed = (req.body || {}).driverId;
+  if (claimed != null && claimed !== "" && Number(claimed) !== req.driverId) return authRequired(res, "driver");
+  // requireDriver has already refused anyone who isn't approved.
+  const driverId = req.driverId;
   const info = db
     .prepare("UPDATE orders SET driver_id = ? WHERE id = ? AND driver_id IS NULL AND status != 'delivered'")
     .run(driverId, id);
@@ -1417,9 +1607,12 @@ app.patch("/api/orders/:id/claim", (req, res) => {
 // Mark one of your own orders delivered — this is what moves the progress bar.
 // Requires the customer's handover OTP, so "delivered" means the customer
 // actually confirmed it rather than the driver just saying so.
-app.patch("/api/orders/:id/deliver", (req, res) => {
+app.patch("/api/orders/:id/deliver", requireDriver, (req, res) => {
   const id = Number(req.params.id);
-  const { driverId, otp } = req.body || {};
+  const { otp } = req.body || {};
+  const claimed = (req.body || {}).driverId;
+  if (claimed != null && claimed !== "" && Number(claimed) !== req.driverId) return authRequired(res, "driver");
+  const driverId = req.driverId;
 
   const order = db.prepare("SELECT * FROM orders WHERE id = ? AND driver_id = ?").get(id, driverId);
   if (!order) return res.status(403).json({ error: "That order isn't assigned to you." });
@@ -1430,9 +1623,16 @@ app.patch("/api/orders/:id/deliver", (req, res) => {
   if (order.delivery_otp) {
     const given = String(otp || "").trim();
     if (!given) return res.status(400).json({ error: "Ask the customer for their 4-digit delivery code." });
-    if (given !== order.delivery_otp) {
-      return res.status(401).json({ error: "That code doesn't match. Check it with the customer." });
+    const key = `order:${id}`;
+    if (otpLimiter.blocked(key)) {
+      return tooMany(res, otpLimiter, key, "Too many wrong codes for this order. Wait a few minutes, then check the code with the customer.");
     }
+    // Not a 401: that would read as "your session expired" to the page.
+    if (given !== order.delivery_otp) {
+      otpLimiter.fail(key);
+      return res.status(400).json({ error: "That code doesn't match. Check it with the customer." });
+    }
+    otpLimiter.reset(key);
   }
 
   const info = db
@@ -1449,4 +1649,16 @@ app.patch("/api/orders/:id/deliver", (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n  WarpX is running → http://localhost:${PORT}\n`);
+  if (SECRETS.adminPasswordIsNew) {
+    // Shown once, the moment it's created — after that it lives in the file.
+    console.log(`  Owner dashboard password: ${SECRETS.adminPassword}`);
+    console.log(`  (saved in warpx-secrets.json — open that file to see or change it)\n`);
+  } else if (SECRETS.adminPasswordFromEnv) {
+    console.log("  Owner dashboard password: set by WARPX_ADMIN_PASSWORD for this run\n");
+  } else {
+    console.log("  Owner dashboard password: see warpx-secrets.json\n");
+  }
+  if (SECRETS.adminPassword.length < 8) {
+    console.log("  ⚠ The owner password is shorter than 8 characters. Anyone who can reach this site can try to guess it — make it longer.\n");
+  }
 });

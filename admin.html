@@ -41,10 +41,10 @@
   <div class="card" style="padding:36px;max-width:340px;width:100%;text-align:center;">
     <div style="font-size:2rem;margin-bottom:10px;">🔐</div>
     <h3>Owner Dashboard</h3>
-    <p class="text-muted" style="font-size:.88rem;">Enter the owner PIN to view incoming orders.</p>
-    <input type="password" id="pinInput" placeholder="PIN" style="text-align:center;letter-spacing:.2em;margin-bottom:14px;" autofocus>
-    <button class="btn btn-primary btn-block" onclick="tryUnlock()">Unlock</button>
-    <p class="hint" style="margin-top:14px;">Default PIN is <code>1234</code> — change ADMIN_PIN in this file before using this for real.</p>
+    <p class="text-muted" style="font-size:.88rem;">Enter the owner password to view incoming orders.</p>
+    <input type="password" id="pinInput" placeholder="Password" autocomplete="current-password" style="text-align:center;margin-bottom:14px;" autofocus>
+    <button class="btn btn-primary btn-block" id="unlockBtn" onclick="tryUnlock()">Unlock</button>
+    <p class="hint" style="margin-top:14px;">The password is in <code translate="no">warpx-secrets.json</code>, next to <code translate="no">warpx.db</code> on the computer running WarpX.</p>
   </div>
 </div>
 
@@ -60,6 +60,7 @@
       <button class="btn btn-ghost btn-sm" onclick="toggleSound()"><span id="soundLabel">🔊 Sound on</span></button>
       <button class="btn btn-ghost btn-sm" onclick="requestNotifyPermission()"><span id="notifyLabel">🔔 Enable alerts</span></button>
       <button class="btn btn-outline btn-sm" onclick="refreshCurrentTab()">↻ Refresh now</button>
+      <button class="btn btn-ghost btn-sm" onclick="lockDashboard()">🔒 Lock</button>
     </div>
   </div>
 
@@ -118,7 +119,6 @@
 <script src="lib/schedule.js"></script>
 <script src="lib/weekly.js"></script>
 <script>
-const ADMIN_PIN = "1234"; // change this before using this for anything real
 const SEEN_KEY = "warpx_admin_seen_ids";
 const SOUND_KEY = "warpx_admin_sound";
 const STALE_MINUTES = 10;
@@ -128,18 +128,76 @@ let currentTab = "orders";
 let serviceFilter = "all";
 let driverFilter = "pending";
 
-function tryUnlock() {
-  const val = document.getElementById("pinInput").value;
-  if (val === ADMIN_PIN) {
-    sessionStorage.setItem("warpx_admin_unlocked", "1");
+/* The password is checked by the server (POST /api/admin/login), which sets an
+   HttpOnly session cookie. It used to be compared right here against a PIN
+   written into this file — so anyone could read it with view-source, and the
+   API behind the dashboard checked nothing at all. */
+async function tryUnlock() {
+  const input = document.getElementById("pinInput");
+  const btn = document.getElementById("unlockBtn");
+  if (!input.value) return showToast("Enter the owner password.");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: input.value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || "Wrong password.");
+      input.select();
+      return;
+    }
+    input.value = "";
     unlockDashboard();
-  } else {
-    showToast("Wrong PIN.");
+  } catch (e) {
+    showToast("Could not reach the server — is WarpX running?");
+  } finally {
+    btn.disabled = false;
   }
+}
+
+/* Every dashboard call goes through here. A 401 with authRequired "admin"
+   means the session has gone (expired, password changed, locked in another
+   tab), so the dashboard locks itself rather than showing empty lists. */
+let locking = false;
+async function adminFetch(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401 && !locking) {
+    let data = null;
+    try { data = await res.clone().json(); } catch (e) {}
+    if (data && data.authRequired === "admin") {
+      showLockScreen("Please enter the owner password again.");
+      return new Promise(() => {}); // locked; the caller has nothing to show
+    }
+  }
+  return res;
+}
+
+function showLockScreen(message) {
+  locking = true;
+  clearInterval(pollTimer);
+  document.getElementById("dashboard").style.display = "none";
+  document.getElementById("pinScreen").style.display = "";
+  if (message) showToast(message);
+  document.getElementById("pinInput").focus();
+}
+
+async function lockDashboard() {
+  try {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "admin" }),
+    });
+  } catch (e) {}
+  showLockScreen();
 }
 document.getElementById("pinInput").addEventListener("keydown", (e) => { if (e.key === "Enter") tryUnlock(); });
 
 function unlockDashboard() {
+  locking = false;
   document.getElementById("pinScreen").style.display = "none";
   document.getElementById("dashboard").style.display = "block";
   // Both the AudioContext and the notification permission prompt need a
@@ -294,7 +352,7 @@ let lastPayouts = null;
 
 async function loadPayouts() {
   try {
-    const res = await fetch("/api/admin/payouts");
+    const res = await adminFetch("/api/admin/payouts");
     if (!res.ok) throw new Error("failed");
     lastPayouts = await res.json();
     renderPayouts();
@@ -360,7 +418,7 @@ function renderPayouts() {
 
 async function markPaid(driverId, day) {
   try {
-    const res = await fetch("/api/admin/payouts", {
+    const res = await adminFetch("/api/admin/payouts", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ driverId, day }),
     });
@@ -374,7 +432,7 @@ async function markPaid(driverId, day) {
 async function undoPayout(id) {
   if (!confirm("Undo this payout record? It goes back to unpaid.")) return;
   try {
-    const res = await fetch(`/api/admin/payouts/${id}`, { method: "DELETE" });
+    const res = await adminFetch(`/api/admin/payouts/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error("Could not undo that.");
     showToast("Payout record removed.");
     loadPayouts();
@@ -383,7 +441,7 @@ async function undoPayout(id) {
 
 async function loadEarnings() {
   try {
-    const res = await fetch("/api/admin/earnings");
+    const res = await adminFetch("/api/admin/earnings");
     if (!res.ok) throw new Error("failed");
     lastEarnings = await res.json();
     renderEarnings();
@@ -456,7 +514,7 @@ function minutesAgo(sqliteDatetime) {
 
 async function loadOrders(manual) {
   try {
-    const res = await fetch("/api/orders");
+    const res = await adminFetch("/api/orders");
     if (!res.ok) throw new Error("failed");
     const orders = await res.json();
     lastOrders = orders;
@@ -625,7 +683,7 @@ function renderOrders(orders) {
 
 async function setStatus(orderId, status) {
   try {
-    await fetch(`/api/orders/${orderId}/status`, {
+    await adminFetch(`/api/orders/${orderId}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
@@ -641,7 +699,7 @@ let lastDrivers = [];
 
 async function loadDrivers(manual) {
   try {
-    const res = await fetch("/api/drivers");
+    const res = await adminFetch("/api/drivers");
     if (!res.ok) throw new Error("failed");
     const drivers = await res.json();
     lastDrivers = drivers;
@@ -715,7 +773,7 @@ function renderDrivers(drivers) {
 async function unlinkDriverGoogle(id) {
   if (!confirm("Unlink this driver's Google account? They'll have to link it again next time they sign in.")) return;
   try {
-    const res = await fetch(`/api/drivers/${id}/google`, { method: "DELETE" });
+    const res = await adminFetch(`/api/drivers/${id}/google`, { method: "DELETE" });
     if (!res.ok) throw new Error("Could not unlink that account.");
     showToast("Google account unlinked.");
     loadDrivers(true);
@@ -724,7 +782,7 @@ async function unlinkDriverGoogle(id) {
 
 async function setDriverStatus(id, status) {
   try {
-    await fetch(`/api/drivers/${id}/status`, {
+    await adminFetch(`/api/drivers/${id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
@@ -770,7 +828,7 @@ function weeklyDayStats(active) {
 
 async function loadWeekly() {
   try {
-    const res = await fetch("/api/admin/weekly/windows");
+    const res = await adminFetch("/api/admin/weekly/windows");
     weeklyWindows = await res.json();
   } catch (e) {
     showToast("Could not reach the server.");
@@ -781,12 +839,12 @@ async function loadWeekly() {
   weeklyOrders = [];
   if (active) {
     try {
-      const r = await fetch(`/api/admin/weekly/windows/${active.id}/orders`);
+      const r = await adminFetch(`/api/admin/weekly/windows/${active.id}/orders`);
       weeklyOrders = await r.json();
     } catch (e) {}
   }
   try {
-    const dres = await fetch("/api/drivers");
+    const dres = await adminFetch("/api/drivers");
     weeklyApprovedDrivers = (await dres.json()).filter((d) => d.status === "approved");
   } catch (e) {
     weeklyApprovedDrivers = [];
@@ -956,7 +1014,7 @@ async function openWeeklyWindow(btn) {
 
   btn.disabled = true;
   try {
-    const res = await fetch("/api/admin/weekly/windows", {
+    const res = await adminFetch("/api/admin/weekly/windows", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cutoffDate, cutoffTime, weekStartDate, slotCapacity }),
@@ -975,7 +1033,7 @@ async function openWeeklyWindow(btn) {
 async function closeWeeklyWindow(id) {
   if (!confirm("Close the planner to new plans now?")) return;
   try {
-    const res = await fetch(`/api/admin/weekly/windows/${id}/close`, { method: "PATCH" });
+    const res = await adminFetch(`/api/admin/weekly/windows/${id}/close`, { method: "PATCH" });
     const data = await res.json();
     if (!res.ok) return showToast(data.error);
     showToast("Planner closed — you can route each day now.");
@@ -989,7 +1047,7 @@ async function previewWeeklyRoutes(windowId) {
   const driverIds = [...weeklySelectedDriverIds];
   const maxPerDriver = Number(document.getElementById("wkMaxPerDriver").value);
   try {
-    const res = await fetch(`/api/admin/weekly/windows/${windowId}/preview-routes`, {
+    const res = await adminFetch(`/api/admin/weekly/windows/${windowId}/preview-routes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deliveryDate: weeklySelectedDay, driverIds, maxPerDriver }),
@@ -1026,7 +1084,7 @@ async function confirmWeeklyRoutes(windowId) {
   const driverIds = [...weeklySelectedDriverIds];
   const maxPerDriver = Number(document.getElementById("wkMaxPerDriver").value);
   try {
-    const res = await fetch(`/api/admin/weekly/windows/${windowId}/assign-routes`, {
+    const res = await adminFetch(`/api/admin/weekly/windows/${windowId}/assign-routes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deliveryDate: weeklySelectedDay, driverIds, maxPerDriver }),
@@ -1056,10 +1114,10 @@ function startPolling() {
   }, 5000);
 }
 
-// Stay unlocked for the rest of this browser tab session.
-if (sessionStorage.getItem("warpx_admin_unlocked") === "1") {
-  unlockDashboard();
-}
+// Already signed in (the session cookie outlives the tab): straight in.
+fetch("/api/admin/session")
+  .then((res) => { if (res.ok) unlockDashboard(); })
+  .catch(() => {});
 </script>
 <script src="/js/pwa.js"></script>
 </body>

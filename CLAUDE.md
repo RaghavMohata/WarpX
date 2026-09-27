@@ -4,7 +4,7 @@ Hyperlocal quick-commerce for **Brahmapuri, Maharashtra**: pickup & drop for
 food (Picasso Cafe), grocery, medicine, laundry, and anything else. One rider
 network, a delivery fee that scales down as the order grows, cash on delivery.
 
-**`README.md` is the real documentation** — 787 lines, and it is current. This
+**`README.md` is the real documentation** — about 870 lines, and it is current. This
 file is a map to it, plus the rules that are invisible in the code. Read the
 one or two README sections your task actually touches; don't read all of it.
 
@@ -31,6 +31,19 @@ come up.
 
 Each of these looks arbitrary in the code and breaks something real if ignored.
 
+**Identity comes from the session cookie, never from the request.** Every
+route touching an order, address or person runs `requireUser`,
+`requireDriver` or `requireAdmin` (top of `server.js`) and reads
+`req.userId` / `req.driverId`. A `userId` or `driverId` in a body, query or
+path is at most checked against the session with `claims()`, and a mismatch is
+a 401. A new endpoint without one of the guards is a data leak. Owner routes
+also accept `Authorization: Bearer <N8N_API_KEY>`, which is how n8n calls in.
+
+**The web server hands out an allowlist, not the folder.** Root `.html` pages,
+`sw.js`, the manifest, `css/`, `js/`, `img/`, and three `lib/` files. It used to
+be `express.static(__dirname)`, which served `warpx.db` to anyone. Never put
+that back. A new browser-side folder or `lib/` file must be added to the list.
+
 **Four modules run in both Node and the browser** — `lib/fee.js`,
 `lib/schedule.js`, `lib/weekly.js` and `js/menu-data.js`. They are `require`d
 by `server.js` *and* served as `<script src>`. So: no `import`/`export`, no
@@ -39,7 +52,7 @@ footer at the bottom. The other `lib/*.js` — `zone`, `tier`, `route`, `auth`,
 `google` — are server-only and unconstrained.
 
 **Bump `VERSION` in `sw.js` whenever shared CSS or JS changes shape.**
-Currently `warpx-v10`. Pages are network-first, but assets are cache-first —
+Currently `warpx-v11`. Pages are network-first, but assets are cache-first —
 without a bump, a returning visitor runs one page-load of yesterday's
 JavaScript against today's API.
 
@@ -93,6 +106,13 @@ the customer's proof of handover.
 - The server refuses orders outside **08:00–22:00** (`lib/schedule.js`). A
   machine whose clock sits outside that window fails every order test for
   reasons that look like bugs — run `TZ=UTC npm start`.
+- **API tests need sessions.** Sign up or log in, then send the `wx_user` /
+  `wx_driver` cookie back. Owner routes take `Authorization: Bearer <key>`
+  from `warpx-secrets.json`. Give each test client its own `X-Forwarded-For`
+  (trusted from localhost only), or ten sign-ups in a row hit the rate limit
+  and look like a bug.
+- `warpx-secrets.json` (gitignored) holds the owner password and n8n key.
+  Never commit it or print its values.
 
 ## Where to look in the README
 
@@ -109,16 +129,18 @@ the customer's proof of handover.
 | Motion, scroll, page transitions | Animation |
 | The weekly veg planner | Weekly vegetable planner (`weekly.html`) |
 | Install to home screen, caching | Installable app (PWA) |
+| Logins, sessions, owner password, n8n key, rate limits | Accounts, sessions and the owner password |
 | Google sign-in setup | Sign in with Google |
 | Serving over HTTPS | HTTPS with a reverse proxy |
 | What is still broken | Known limitations |
 
 ## Security posture
 
-The admin dashboard is gated by a PIN that is a **client-side constant in
-`admin.html`**, and the API behind it has no auth at all. Ownership checks
-trust a client-supplied `userId`. There is no rate limiting and no phone
-verification at sign-up. All of this is known, acceptable for a localhost
-demo, and written up under "Known limitations" — it does not need
-re-reporting. It does need fixing before the site is reachable from the
-internet.
+Locked down for a site reachable from the internet (the owner runs it through
+ngrok). There are HttpOnly session cookies for customers, drivers and the
+owner. The owner password lives in `warpx-secrets.json` and is checked on the
+server. Password, sign-up, driver sign-in and delivery-code attempts are
+rate-limited, and only the site's own files are served. What's still open is
+written up under "Known limitations" and doesn't need re-reporting: driver
+sign-in by phone alone, no phone/email verification, one shared owner
+password, and no limit on placing orders.

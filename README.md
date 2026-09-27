@@ -73,12 +73,15 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 
 | Endpoint | What it does |
 |---|---|
-| `POST /api/auth/signup` | Create an account — phone + password, hashed before it touches the database |
-| `POST /api/auth/login` | Log into an existing account — verifies the password, never the other way around |
+| `POST /api/auth/signup` | Create an account — phone + password (hashed before it touches the database), optional email; starts a session |
+| `POST /api/auth/login` | Log into an existing account — verifies the password, never the other way around; starts a session |
+| `POST /api/auth/logout` | End one session — `{ "kind": "user" }`, `"driver"` or `"admin"` |
+| `POST /api/admin/login` | The owner's password, checked on the server; starts an owner session |
+| `GET /api/admin/session` | 200 if this browser holds a live owner session — how `admin.html` decides whether to show the password box |
 | `POST /api/users/:id/location` | Save a captured location; computes and returns the delivery zone/ETA server-side via `lib/zone.js` |
 | `GET /api/users/:id/location` | Fetch a user's most recent saved location |
-| `POST /api/orders` | Place an order — **requires a valid, logged-in `userId`** (rejects with 401 otherwise); computes totals server-side, persists the order + line items + payment method + a snapshot of the customer's current lat/lng/address |
-| `GET /api/orders/:userId` | Order history for a single user, items included |
+| `POST /api/orders` | Place an order — **requires a signed-in customer**, identified by their session cookie (401 otherwise); computes totals server-side, persists the order + line items + payment method + a snapshot of the customer's current lat/lng/address |
+| `GET /api/orders/:userId` | The signed-in customer's own order history, items and delivery codes included — anyone else's id is refused |
 | `GET /api/orders` | **All** orders across every customer, newest first — powers `admin.html` |
 | `PATCH /api/orders/:id/status` | Update an order's status (`placed` → `preparing` → `out for delivery` → `delivered`) |
 | `POST /api/drivers` | Submit a delivery-driver application (public, no login required) |
@@ -90,16 +93,71 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `PATCH /api/orders/:id/claim` | A driver claims an unassigned order (rejects if someone else got there first) |
 | `PATCH /api/orders/:id/deliver` | A driver completes their own order — requires the customer's 4-digit delivery code, and is what advances the progress bar |
 
+**Who can call what** is in "Accounts, sessions and the owner password" below: in short, a customer's routes need that customer's session, the Driver Hub's need an approved driver's, and everything the dashboard uses needs the owner's (or n8n's key).
+
 `lib/zone.js` is a server-side port of the Haversine/zone logic in `js/location.js` — the browser copy is for instant map feedback before you submit; the server copy is what actually gets stored, so it's the source of truth.
 
 ## Login / sign-up
 
-Real password authentication, not a demo OTP: `login.html` has a password field (with a show/hide toggle) and, when signing up, a confirm-password field. Passwords are never stored or transmitted in the clear — `lib/auth.js` hashes each one with Node's built-in `crypto.scryptSync` and a random per-user salt, and login compares hashes with a timing-safe check (`crypto.timingSafeEqual`) rather than a plain `===`.
+Real password authentication, not a demo OTP: `login.html` has a password field (with a show/hide toggle) and, when signing up, a confirm-password field and an optional **email** box. A customer who gives an email gets the same order-confirmation email, with their delivery code, that Google sign-in customers get (the `N8N_CUSTOMER_WEBHOOK_URL` workflow sends to anyone with an email on file). The email isn't verified — a typo just sends one confirmation to the wrong inbox, and the code in it is useless to anyone but the driver at the door. Passwords are never stored or transmitted in the clear — `lib/auth.js` hashes each one with Node's built-in `crypto.scryptSync` and a random per-user salt, and login compares hashes with a timing-safe check (`crypto.timingSafeEqual`) rather than a plain `===`.
 
 A few things this still doesn't do, on purpose (kept in scope for a local demo):
-- No session tokens/cookies — after a successful login the browser just holds `{id, name, phone}` in `localStorage`, the same as before. Anyone with access to that browser's storage can "act as" that logged-in user; there's no way to remotely revoke a session.
-- No rate-limiting on login attempts, no account lockout, no password reset flow.
+- No password reset flow, and no account lockout (failed attempts are rate-limited per connection instead — see below).
 - If the server is unreachable at all (network error), it falls back to a local-only session so the demo keeps working — but a wrong password or a duplicate sign-up is always a hard rejection with no fallback, exactly because that's the point of adding a password.
+
+## Accounts, sessions and the owner password
+
+**Who someone is comes from the server, never from the request.** Every login — phone + password, Google, the Driver Hub, the owner's dashboard — ends with the server setting an `HttpOnly` session cookie. The cookie holds a random token; `warpx.db` stores only its SHA-256 (`sessions` table), so a copy of the database can't be replayed as a login. Every route that touches an order, an address or a person looks the cookie up and takes the account from it. A `userId` or `driverId` in a request is ignored; one that disagrees with the session is refused, because it means a stale tab.
+
+Before this, the request itself said who it was, and anyone could type a different number. Worse, the web server handed out **every file in the project folder** — `warpx.db` itself could be downloaded by typing its name after the domain. Both are closed: see "What the web server hands out" below.
+
+| Cookie | Set by | Lasts | Opens |
+|---|---|---|---|
+| `wx_user` | sign-up, login, Google sign-in | 180 days | that customer's own orders, addresses, location and weekly plan |
+| `wx_driver` | Driver Hub sign-in (phone or Google) | 30 days | the job board, claiming, pickup, delivery, that driver's own summary and payouts — re-checked on every request, so **rejecting a driver in the dashboard ends their hub immediately** |
+| `wx_admin` | the owner password on `admin.html` | 30 days | everything the dashboard does: all orders, status changes, drivers, weekly routing, payouts, earnings |
+
+All three are `SameSite=Lax` (another site can't ride them on a POST) and `Secure` when the request came in over HTTPS via ngrok or Caddy. One browser can hold all three at once. `localStorage` still keeps `warpx_user` / `warpx_driver`, but only for what the pages display. When it disagrees with the server, the page drops it and asks the person to log in again.
+
+**After updating to this version, everyone logs in once more** — customers, drivers and the owner. Logins from before sessions existed have no cookie, and the pages send those people to the login screen.
+
+### The owner password
+
+The dashboard used to compare a PIN written inside `admin.html` (readable by anyone with view-source), and the API behind it checked nothing. Now:
+
+- The first time the server starts, it creates **`warpx-secrets.json`** next to `warpx.db` with a random owner password, and prints it in the terminal once. After that the terminal just says where it is.
+- **To change it,** open `warpx-secrets.json`, edit `ADMIN_PASSWORD`, and restart. Every owner session signed in under the old password stops working.
+- The file is gitignored like the database — never commit it or paste it into a chat. Back it up alongside `warpx.db`. If it's lost, a new one is generated on the next start (new password, new n8n key).
+- `WARPX_ADMIN_PASSWORD=… npm start` overrides the file for one run.
+- The dashboard has a **🔒 Lock** button, for a counter tablet other people can reach.
+
+### n8n calling back into WarpX
+
+WarpX calling n8n (the webhooks) needs nothing new. **n8n calling WarpX does** — reading `GET /api/orders` for a daily summary, or moving an order with `PATCH /api/orders/:id/status` / `.../pickup` when a partner replies in Telegram. Those requests must carry the key from `warpx-secrets.json`:
+
+```
+Authorization: Bearer <N8N_API_KEY from warpx-secrets.json>
+```
+
+In n8n's **HTTP Request** node: Authentication → Generic → Header Auth, name `Authorization`, value `Bearer ` followed by the key. The key opens what the owner's dashboard can. It is **not** a customer or driver login, so it can't read one customer's history or delivery codes. For `.../pickup` it acts for the driver named in the body's `driverId`, and still only if that driver holds the order. `WARPX_N8N_KEY=…` overrides the file for one run.
+
+### Attempt limits
+
+Counted per visitor, failures only (mobile networks put many phones behind one IP, so counting every successful login would lock out real customers). In memory — a restart resets them.
+
+| What | Limit | Then |
+|---|---|---|
+| Owner password | 10 wrong in 15 min | 429 for the rest of the window, even with the right password |
+| Customer password (login, or linking Google to an existing account) | 20 wrong in 15 min | 429 |
+| Driver sign-in with an unknown number | 20 misses in 15 min | 429 — stops a script walking through phone numbers |
+| Sign-ups | 10 in 15 min, counted whether they succeed or not | 429 |
+| Delivery code | 5 wrong **per order** in 15 min | 429 — 10,000 possible codes is only safe if nobody can try them all |
+
+`req.ip` is the real visitor even through ngrok or Caddy: Express trusts `X-Forwarded-For` only from a proxy on this same machine (`app.set("trust proxy", "loopback")`), so a visitor can't pick the IP their attempts count against.
+
+### What the web server hands out
+
+An allowlist: the `.html` pages, `sw.js`, `manifest.webmanifest`, the `css/`, `js/` and `img/` folders, and the three `lib/` files the browser runs (`fee.js`, `schedule.js`, `weekly.js`). Everything else is a 404: `warpx.db`, `warpx-secrets.json`, `server.js`, `config.js`, `package.json`, the rest of `lib/`, `node_modules/`. A new page at the root is picked up automatically. A new *folder* of browser files has to be added to the list in `server.js`.
 
 ## Checkout — login required, address confirm, payment method
 
@@ -110,7 +168,7 @@ Browsing and building a cart never requires an account — that stays open, like
    - **Your order** — items, subtotal, the delivery fee for that basket size (with a nudge showing how much more would unlock the next slab), total.
    - **Delivery address** — your saved location's landmark note and zone/ETA, with a **Change** button that expands inline (no redirect to `login.html` — that was a dead end for anyone already logged in who just needed to fix a typo or refresh their GPS fix). Inline you get two independent things: a "Use my current location" button that re-captures GPS and recomputes the zone/ETA live, and a plain text field for the landmark/house-number note. Editing just the text keeps whatever coordinates you already had; tapping the GPS button replaces them. Both get saved immediately (locally and to the server) — the next order you place uses whatever's current at that moment.
    - **Payment method** — Cash on Delivery, or UPI (an optional UPI ID field, purely informational — see the caveat below).
-3. **Place order** posts to `POST /api/orders`, which itself independently re-checks that `userId` is a real, logged-in account — checking out isn't just hidden by the UI, a direct API call with no `userId` is rejected with a 401 regardless of what the front-end does. I verified this directly (a raw `fetch` to the endpoint with no `userId` returns `{"error":"Please log in to place an order."}`, status 401).
+3. **Place order** posts to `POST /api/orders`, which takes the customer from their session cookie — checking out isn't just hidden by the UI: a request with no session is refused with a 401, and one that names a different `userId` than the session is refused too.
 
 `checkout.html` also guards itself on load — visiting it directly without being logged in shows a "Log in to check out" prompt instead of the order form, so there's no way to reach it by skipping the cart drawer either.
 
@@ -120,10 +178,10 @@ Browsing and building a cart never requires an account — that stays open, like
 
 `orders.html` only shows a *customer's own* history — it's not for you. **`admin.html`** is the owner's view: it polls `GET /api/orders` every 5 seconds, plays a beep and pops a toast the moment a new order appears, and shows full customer contact info (name/phone) plus items so you can act on it. Click through the status buttons on each order (`placed → preparing → out for delivery → delivered`) as you work it.
 
-To use it: open `admin.html`, enter the PIN (**`1234`** by default), and just leave that tab open on a phone, tablet, or spare monitor at the counter — that's genuinely how small businesses run these on Swiggy/Zomato-style tablets.
+To use it: open `admin.html`, enter the owner password (from `warpx-secrets.json` — see "The owner password" above), and just leave that tab open on a phone, tablet, or spare monitor at the counter — that's genuinely how small businesses run these on Swiggy/Zomato-style tablets.
 
 **What it does now, beyond the basics:**
-- **Sound that actually plays.** Earlier, `beep()` created a brand-new `AudioContext` inside the polling loop — browsers silently block audio that isn't triggered by a real user click, so the very first beeps were liable to never be heard. It now creates one `AudioContext` at the PIN-unlock click (a genuine user gesture) and reuses it, which is what makes the beep reliable.
+- **Sound that actually plays.** Earlier, `beep()` created a brand-new `AudioContext` inside the polling loop — browsers silently block audio that isn't triggered by a real user click, so the very first beeps were liable to never be heard. It now creates one `AudioContext` at the unlock click (a genuine user gesture) and reuses it, which is what makes the beep reliable.
 - **Desktop notifications.** The same unlock click also asks for OS-level notification permission (the browser `Notification` API). If you switch away from the tab, a new order pops a real desktop notification, not just an in-tab toast — click it to jump back. Toggle it anytime with the "Enable alerts" button.
 - **Per-service filters.** An "Orders" view with All/Food/Grocery/Medicine/Laundry/Anything tabs, so if you only run the medicine counter you can filter to just that — useful once one dashboard needs to be shared across different people handling different services.
 - **Escalation highlighting.** Any order still sitting at `placed` (never even acknowledged) for more than 10 minutes gets a red pulsing outline and an "Unacknowledged N min" tag, so a busy counter can't lose track of something going stale.
@@ -131,7 +189,7 @@ To use it: open `admin.html`, enter the PIN (**`1234`** by default), and just le
 
 **Honest long-term problems this still doesn't solve** (real infrastructure, not a code tweak):
 - **This is polling, not push.** The dashboard checks every 5 seconds while the tab is open — close the tab, or the browser/OS kills the tab in the background, and nothing reaches you at all. A real solution is a push channel that works with the tab closed: SMS (Twilio or similar), a mobile push notification (Firebase Cloud Messaging/APNs) to a proper phone app, or at minimum a Service Worker with the Push API so browser notifications survive a closed tab. All of these need a backend service and (for SMS) an ongoing per-message cost — a genuinely bigger step than this project takes on.
-- **Single shared PIN, no accounts.** `ADMIN_PIN` is one hardcoded value in the page's own JavaScript — anyone who reads page source sees it, there's no audit trail of *who* changed an order's status, and there's no way to give one staff member access to only, say, the medicine queue without them also seeing food orders (the per-service filter is a client-side view, not an access boundary). Real multi-retailer support needs actual retailer accounts with server-side authorization, the same password-hashing pattern already used for customers.
+- **Single shared password, no staff accounts.** The owner password is checked on the server now, but it's still one password for everyone at the counter — there's no audit trail of *who* changed an order's status, and there's no way to give one staff member access to only, say, the medicine queue without them also seeing food orders (the per-service filter is a client-side view, not an access boundary). Real multi-retailer support needs actual retailer accounts with server-side authorization, the same password-hashing pattern already used for customers.
 - **Single point of failure.** If nobody is watching the one open dashboard tab — it crashed, the device is asleep, the wifi dropped — orders simply pile up unacknowledged with no fallback channel. A real deployment would want at least a second notification path (SMS/email) that doesn't depend on a browser tab staying open and connected.
 - **Dispatch is pull, not push.** Drivers now have their own hub (see below) where they claim orders off a shared board and mark them delivered, so orders do get assigned to a named driver. What's still missing is *push*: nobody is notified when a new order appears (the board just polls every 10 seconds), no order is auto-assigned to the nearest driver, and there's no live tracking of where a driver is mid-delivery. Those need the same push infrastructure as the notification gap above.
 
@@ -143,7 +201,7 @@ None of these need guesswork to fix — they need real accounts, a real push/SMS
 
 `admin.html`'s alerts only fire while that tab is open in a browser. [n8n](https://n8n.io) — a separate, self-hosted workflow tool, run on the same Mac as WarpX — lets an order also reach a real phone via Telegram or WhatsApp, whether or not anyone has the dashboard open.
 
-**How it works:** the moment an order commits to the database (`POST /api/orders` in `server.js`), WarpX makes one outbound `fetch()` to whatever URL is set as `N8N_WEBHOOK_URL` — n8n's own Webhook-trigger node. From there the n8n workflow (built visually in n8n's UI, not in this repo) branches on the order's `services` field and messages Picasso Cafe's owner for food orders, and a delivery-partner chat for everything else. When a partner replies "accepted" or "delivered", that workflow calls back into the *existing* `PATCH /api/orders/:id/status` and `PATCH /api/orders/:id/pickup` routes — no new WarpX endpoint needed for that direction.
+**How it works:** the moment an order commits to the database (`POST /api/orders` in `server.js`), WarpX makes one outbound `fetch()` to whatever URL is set as `N8N_WEBHOOK_URL` — n8n's own Webhook-trigger node. From there the n8n workflow (built visually in n8n's UI, not in this repo) branches on the order's `services` field and messages Picasso Cafe's owner for food orders, and a delivery-partner chat for everything else. When a partner replies "accepted" or "delivered", that workflow calls back into the *existing* `PATCH /api/orders/:id/status` and `PATCH /api/orders/:id/pickup` routes — no new WarpX endpoint needed for that direction. Those calls back must carry WarpX's n8n key — see "n8n calling back into WarpX".
 
 **Turning it on:**
 1. Run n8n locally — `npx n8n` or Docker, same idea as running Caddy as a background service (see the reverse-proxy section above).
@@ -175,7 +233,7 @@ The customer's delivery OTP is deliberately never included — the same rule `wi
 
 **On reachability, tying back to the reverse-proxy section above:** this call is *outbound* — WarpX (or n8n) reaching out to Telegram/WhatsApp's own servers — so it works over a normal home connection with no port forwarding, and isn't affected by CGNAT the way accepting inbound connections is. The one place that matters is getting a *reply* from a partner: rather than a Telegram webhook (which would need a public HTTPS endpoint pointed at this Mac), have the n8n workflow poll Telegram's `getUpdates` on a Schedule-trigger node every few seconds instead. That keeps the entire loop outbound-only in both directions.
 
-**Not built here on purpose:** the actual n8n workflow (which nodes, which chat IDs, message wording) lives inside n8n itself, not in this repo — it's built and edited visually in n8n's own UI, the same way `admin.html`'s PIN and Caddy's domain are configuration rather than code.
+**Not built here on purpose:** the actual n8n workflow (which nodes, which chat IDs, message wording) lives inside n8n itself, not in this repo — it's built and edited visually in n8n's own UI, the same way Caddy's domain is configuration rather than code. (n8n calling back into WarpX needs a key — see "n8n calling back into WarpX".)
 
 ### Customer-side status pings
 
@@ -302,7 +360,7 @@ The owner's dashboard now also shows which driver is carrying each order, or "no
 - The driver's job card has a 4-digit field. Wrong code → the delivery is refused and the order stays open, with the typed digits left on screen so a typo can be corrected rather than retyped.
 - **The code never leaves the customer.** It's stripped from every response a driver or the owner dashboard can read (`/api/orders`, `/api/orders/available`, the claim response, and the driver summary) via a `withoutOtp()` helper — if a driver could read it, the code would prove nothing. The customer's own `/api/orders/:userId` is the only endpoint that returns it. There's a test that asserts the code appears nowhere in the driver page's HTML.
 - Orders placed *before* delivery codes existed have no code stored, and stay completable without one rather than being stranded forever.
-- **Escape hatch:** if a customer is unreachable or has lost their code, the owner can still force an order to `delivered` from the status buttons in `admin.html`. That's deliberate — but it does mean the admin PIN is the way around the code, which is one more reason to change it from the default.
+- **Escape hatch:** if a customer is unreachable or has lost their code, the owner can still force an order to `delivered` from the status buttons in `admin.html`. That's deliberate — but it does mean the owner password is the way around the code, which is one more reason to keep it private.
 
 **Honest caveat on driver sign-in:** drivers never set a password — they only ever filled in the careers form — so signing in with just a phone number *identifies* rather than *authenticates*. Anyone who knows an approved driver's number could open their hub. That's fine for a small town where you personally approved every driver, but it's the first thing to fix if this grows: give drivers a real password (the customer-side `lib/auth.js` hashing is already there to reuse).
 
@@ -484,7 +542,7 @@ That last step is what keeps the change backwards-compatible: an existing custom
 | `PATCH /api/addresses/:id` | Rename, move the pin, or make it the default |
 | `DELETE /api/addresses/:id` | Remove it, promoting a new default if needed |
 
-Edit and delete are scoped with `WHERE id = ? AND user_id = ?`, so one customer cannot touch another's addresses. That said, `userId` still arrives from the client like everywhere else in this app — see "Known limitations".
+Edit and delete are scoped with `WHERE id = ? AND user_id = ?`, where `user_id` comes from the customer's session, so one customer cannot touch another's addresses.
 
 ## Scheduled orders
 
@@ -778,34 +836,32 @@ using a different domain, edit it before starting.
    `http://localhost:3000` too, for local testing). Google Sign-In won't work on the
    new domain until this is added.
 
-Express is told it's behind a proxy (`app.set("trust proxy", true)` in `server.js`)
-so `req.ip` and `req.protocol` reflect the real visitor rather than Caddy itself —
-not load-bearing today since nothing reads either yet, but correct the moment
-rate limiting or IP logging is added.
+Express trusts proxy headers from this machine only (`app.set("trust proxy",
+"loopback")` in `server.js`), so `req.ip` and `req.protocol` reflect the real visitor
+rather than Caddy or ngrok. This matters: the login attempt limits count per
+`req.ip`, and session cookies are marked `Secure` when `req.protocol` is https.
 
 **To stop it:** `sudo brew services stop caddy`. Node keeps running independently;
 your domain just stops resolving to anything until Caddy is started again.
 
 ⚠️ Going from a temporary tunnel link to a permanent domain changes the risk here.
 A tunnel URL is usually short-lived and only shared with people you gave it to; a
-domain sits there indefinitely for anyone to find. The admin PIN being visible in
-`admin.html`'s source and the total absence of API auth (see Known limitations,
-just below) matter far more once the site has a permanent public address — don't
-treat this step as "done," treat the items below as the next ones to close.
+domain sits there indefinitely for anyone to find. The API is locked down now (see
+"Accounts, sessions and the owner password"), but the items under Known
+limitations, just below, matter far more once the site has a permanent public
+address — treat them as the next ones to close.
 
 ## Known limitations
 
 Things that are genuinely not solved yet, written down so they don't get rediscovered as surprises.
 
 - **Cafe items are matched by name.** Server-side pricing keys off the item name in `js/menu-data.js`, so renaming an item there without updating anything else makes existing carts holding the old name resolve to unpriced rather than mispriced. Safe, but worth knowing before a menu rewrite.
-- **`GET /api/admin/earnings` has no auth**, like every other endpoint here — anyone who can reach the server can read your revenue and driver costs. Same root cause as the admin PIN below.
-- **The admin PIN is in the page.** `ADMIN_PIN` is a constant in `admin.html`, visible in view-source, and the API behind it has no auth at all — `GET /api/orders` returns every customer's name, phone, address and coordinates to anyone who requests it. That's fine on localhost; it is a data leak the moment the site is reachable from the internet.
-- **Driver sign-in by phone alone still identifies rather than authenticates.** Google sign-in fixes this for drivers who link an account; a driver who never links is exactly as before. Making Google mandatory for drivers would close it completely.
-- **Ownership checks trust a client-supplied `userId`.** The address endpoints scope every read and write to `user_id`, which stops accidents and casual tampering, but since there are no sessions or tokens a crafted request can still claim to be another user. Real sessions would fix this everywhere at once.
-- **No rate limiting** on any endpoint, so order spam and login brute-forcing are both open.
-- **No phone verification at sign-up**, so a wrong or fake number means an order nobody can chase.
+- **Driver sign-in by phone alone still identifies rather than authenticates.** Knowing an approved driver's number is enough to open their hub — the job board, with customers' addresses. Wrong numbers are rate-limited, but a *known* number isn't a secret. Google sign-in fixes this for drivers who link an account. Making Google mandatory for drivers, or giving them a password, would close it completely.
+- **Limits cover logins, not everything.** Password, sign-up, driver sign-in and delivery-code attempts are capped (see "Attempt limits"). Placing orders and the public driver application form aren't, so a signed-in customer could still spam orders.
+- **One owner password, no staff accounts** — see the dashboard section above.
+- **No phone or email verification at sign-up**, so a wrong or fake number means an order nobody can chase, and a mistyped email sends confirmations to a stranger.
 - **The PWA needs HTTPS off localhost.** Service workers only run on `https://` or `localhost` — over plain `http://` on a LAN IP or a bare port-forward the site still works, it just won't install or cache. See "HTTPS with a reverse proxy" above for the fix.
-- **`warpx.db` has no backup.** It's a single file; losing it loses every order, customer and driver.
+- **`warpx.db` has no backup.** It's a single file; losing it loses every order, customer and driver. Back up `warpx-secrets.json` with it.
 
 ## Notes
 

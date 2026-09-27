@@ -114,8 +114,8 @@ function escapeAttr(str) {
   return div.innerHTML;
 }
 
-function logout() {
-  localStorage.removeItem("warpx_user");
+async function logout() {
+  await logoutCustomer();
   localStorage.removeItem("warpx_location");
   window.location.href = "index.html";
 }
@@ -191,7 +191,7 @@ async function loadOrders() {
   `;
 
   try {
-    const res = await fetch(`/api/orders/${user.id}`);
+    const res = await apiFetch(`/api/orders/${user.id}`);
     if (!res.ok) throw new Error("failed");
     const orders = await res.json();
 

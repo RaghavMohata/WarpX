@@ -37,7 +37,7 @@ function addressZoneLine(a) {
 
 async function fetchAddresses(userId) {
   try {
-    const res = await fetch(`/api/users/${userId}/addresses`);
+    const res = await apiFetch(`/api/users/${userId}/addresses`);
     if (!res.ok) return [];
     return await res.json();
   } catch (e) {
@@ -46,7 +46,7 @@ async function fetchAddresses(userId) {
 }
 
 async function createAddress(userId, payload) {
-  const res = await fetch(`/api/users/${userId}/addresses`, {
+  const res = await apiFetch(`/api/users/${userId}/addresses`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -57,7 +57,7 @@ async function createAddress(userId, payload) {
 }
 
 async function updateAddress(id, payload) {
-  const res = await fetch(`/api/addresses/${id}`, {
+  const res = await apiFetch(`/api/addresses/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -68,7 +68,7 @@ async function updateAddress(id, payload) {
 }
 
 async function deleteAddress(id, userId) {
-  const res = await fetch(`/api/addresses/${id}?userId=${userId}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/addresses/${id}?userId=${userId}`, { method: "DELETE" });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Could not delete that address.");
   return data;

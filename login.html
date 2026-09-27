@@ -100,6 +100,11 @@
           <label for="authConfirmPassword">Confirm password</label>
           <input type="password" id="authConfirmPassword" placeholder="Re-enter your password" autocomplete="new-password">
         </div>
+        <div class="field" id="emailField" style="display:none;">
+          <label for="authEmail">Email <span class="text-muted" style="font-weight:400;">(optional)</span></label>
+          <input type="email" id="authEmail" placeholder="you@example.com" translate="no" autocomplete="email" inputmode="email">
+          <p class="hint">We'll email your order confirmation and delivery code.</p>
+        </div>
         <div class="divider"></div>
         <p class="text-muted" style="font-size:.85rem;">Set your delivery location on the right, then continue below.</p>
       </div>
@@ -201,6 +206,7 @@ document.getElementById("authSeg").addEventListener("click", (e) => {
   const isSignup = btn.dataset.val === "signup";
   document.getElementById("nameField").style.display = isSignup ? "block" : "none";
   document.getElementById("confirmPasswordField").style.display = isSignup ? "block" : "none";
+  document.getElementById("emailField").style.display = isSignup ? "block" : "none";
   document.getElementById("authPassword").setAttribute("autocomplete", isSignup ? "new-password" : "current-password");
 });
 
@@ -343,6 +349,10 @@ async function completeLogin(btn) {
   if (mode === "signup" && password !== document.getElementById("authConfirmPassword").value) {
     return showToast("Passwords don't match.");
   }
+  const email = document.getElementById("authEmail").value.trim();
+  if (mode === "signup" && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return showToast("That email doesn't look right — check it, or leave it empty.");
+  }
   if (!currentLoc) return showToast("Set a delivery location first.");
 
   const name = document.getElementById("authName").value.trim();
@@ -354,7 +364,7 @@ async function completeLogin(btn) {
   btn.textContent = "Saving...";
   try {
     const endpoint = mode === "signup" ? "/api/auth/signup" : "/api/auth/login";
-    const body = mode === "signup" ? { name, phone, password } : { phone, password };
+    const body = mode === "signup" ? { name, phone, password, email: email || undefined } : { phone, password };
 
     let res;
     try {

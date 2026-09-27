@@ -2,3 +2,4 @@ node_modules/
 warpx.db
 warpx.db-*
 .DS_Store
+warpx-secrets.json

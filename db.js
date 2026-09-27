@@ -167,6 +167,22 @@ db.exec(`
 
   CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_plans_window_user ON weekly_plans(window_id, user_id);
   CREATE INDEX IF NOT EXISTS idx_weekly_plans_window_slot ON weekly_plans(window_id, slot_id);
+
+  /* Who a browser is signed in as. The cookie carries a random token; only its
+     SHA-256 is stored, so a copy of this file can't be replayed as a login.
+     kind is 'user', 'driver' or 'admin' — each has its own cookie, so one
+     browser can be all three at once (the owner testing their own shop).
+     fingerprint is set on admin rows only: it records which admin password
+     issued the session, so changing the password signs every old one out. */
+  CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    subject_id INTEGER,
+    fingerprint TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 `);
 
 // Safe migrations for a warpx.db created before these columns existed.

@@ -627,7 +627,7 @@ async function submitWeeklyPlan(btn, user, selectedAddr, upiId) {
   btn.disabled = true;
   btn.textContent = "Booking your week...";
   try {
-    const res = await fetch("/api/weekly/plans", {
+    const res = await apiFetch("/api/weekly/plans", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -728,7 +728,7 @@ async function submitOrder(btn) {
   btn.disabled = true;
   btn.textContent = "Placing order...";
   try {
-    const res = await fetch("/api/orders", {
+    const res = await apiFetch("/api/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

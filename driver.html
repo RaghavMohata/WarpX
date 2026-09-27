@@ -302,6 +302,28 @@ function getDriver() {
   catch (e) { return null; }
 }
 
+/* The server knows which driver this is from the session cookie set at
+   sign-in; DRIVER_KEY only holds what the hub displays. If that session is
+   gone — expired, signed out elsewhere, or the owner switched this driver off
+   — the server answers 401 with authRequired "driver", and the hub goes back
+   to the sign-in screen instead of failing every ten seconds. */
+let signingOut = false;
+async function driverFetch(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401 && !signingOut) {
+    let data = null;
+    try { data = await res.clone().json(); } catch (e) {}
+    if (data && data.authRequired === "driver") {
+      signingOut = true;
+      localStorage.removeItem(DRIVER_KEY);
+      showToast(data.error || "Please sign in again.");
+      setTimeout(() => window.location.reload(), 1500);
+      return new Promise(() => {}); // the page is reloading; nothing to handle
+    }
+  }
+  return res;
+}
+
 async function signIn(btn) {
   const phone = document.getElementById("drvPhone").value.trim();
   if (!phone) return showToast("Enter your mobile number.");
@@ -326,7 +348,14 @@ async function signIn(btn) {
   }
 }
 
-function signOut() {
+async function signOut() {
+  try {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "driver" }),
+    });
+  } catch (e) {}
   localStorage.removeItem(DRIVER_KEY);
   window.location.reload();
 }
@@ -637,8 +666,8 @@ async function refresh(manual) {
   if (!driver) return;
   try {
     const [sumRes, availRes] = await Promise.all([
-      fetch(`/api/drivers/${driver.id}/summary`),
-      fetch("/api/orders/available"),
+      driverFetch(`/api/drivers/${driver.id}/summary`),
+      driverFetch("/api/orders/available"),
     ]);
     if (!sumRes.ok || !availRes.ok) throw new Error("failed");
     const summary = await sumRes.json();
@@ -717,7 +746,7 @@ async function claimOrder(orderId, btn) {
   btn.disabled = true;
   btn.textContent = "Accepting...";
   try {
-    const res = await fetch(`/api/orders/${orderId}/claim`, {
+    const res = await driverFetch(`/api/orders/${orderId}/claim`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ driverId: driver.id }),
@@ -745,7 +774,7 @@ async function markPickedUp(orderId, btn) {
   const original = btn.textContent;
   btn.textContent = "Updating...";
   try {
-    const res = await fetch(`/api/orders/${orderId}/pickup`, {
+    const res = await driverFetch(`/api/orders/${orderId}/pickup`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ driverId: driver.id }),
@@ -767,7 +796,7 @@ async function loadPayouts() {
   const driver = getDriver();
   if (!driver) return;
   try {
-    const res = await fetch(`/api/drivers/${driver.id}/payouts`);
+    const res = await driverFetch(`/api/drivers/${driver.id}/payouts`);
     if (!res.ok) return;
     const data = await res.json();
     const box = document.getElementById("payoutList");
@@ -804,7 +833,7 @@ async function markDelivered(orderId, btn) {
   btn.disabled = true;
   btn.textContent = "Checking...";
   try {
-    const res = await fetch(`/api/orders/${orderId}/deliver`, {
+    const res = await driverFetch(`/api/orders/${orderId}/deliver`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ driverId: driver.id, otp }),

@@ -117,7 +117,7 @@ Before this, the request itself said who it was, and anyone could type a differe
 | `wx_driver` | Driver Hub sign-in (phone or Google) | 30 days | the job board, claiming, pickup, delivery, that driver's own summary and payouts — re-checked on every request, so **rejecting a driver in the dashboard ends their hub immediately** |
 | `wx_admin` | the owner password on `admin.html` | 30 days | everything the dashboard does: all orders, status changes, drivers, weekly routing, payouts, earnings |
 
-All three are `SameSite=Lax` (another site can't ride them on a POST) and `Secure` when the request came in over HTTPS via ngrok or Caddy. One browser can hold all three at once. `localStorage` still keeps `warpx_user` / `warpx_driver`, but only for what the pages display. When it disagrees with the server, the page drops it and asks the person to log in again.
+All three are `SameSite=Lax` (another site can't ride them on a POST) and `Secure` when the request came in over HTTPS via Cloudflare Tunnel, ngrok or Caddy. One browser can hold all three at once. `localStorage` still keeps `warpx_user` / `warpx_driver`, but only for what the pages display. When it disagrees with the server, the page drops it and asks the person to log in again.
 
 **After updating to this version, everyone logs in once more** — customers, drivers and the owner. Logins from before sessions existed have no cookie, and the pages send those people to the login screen.
 
@@ -153,7 +153,7 @@ Counted per visitor, failures only (mobile networks put many phones behind one I
 | Sign-ups | 10 in 15 min, counted whether they succeed or not | 429 |
 | Delivery code | 5 wrong **per order** in 15 min | 429 — 10,000 possible codes is only safe if nobody can try them all |
 
-`req.ip` is the real visitor even through ngrok or Caddy: Express trusts `X-Forwarded-For` only from a proxy on this same machine (`app.set("trust proxy", "loopback")`), so a visitor can't pick the IP their attempts count against.
+`req.ip` is the real visitor even through Cloudflare Tunnel, ngrok or Caddy: Express trusts `X-Forwarded-For` only from a proxy on this same machine (`app.set("trust proxy", "loopback")`), so a visitor can't pick the IP their attempts count against.
 
 ### What the web server hands out
 
@@ -790,6 +790,58 @@ number could in principle claim it first. That is not worse than the current
 sign-in, where the phone alone *is* the whole credential permanently, and every
 sign-in after linking is properly authenticated. To keep it accountable the admin
 **Drivers** tab shows each linked Google address with an **Unlink** button.
+
+## Running it for real (Cloudflare Tunnel + pm2)
+
+This is how `https://warpx.online` runs today, on the owner's MacBook:
+
+```
+visitor → Cloudflare (HTTPS) → cloudflared on the Mac → WarpX on localhost:3000
+```
+
+- **Cloudflare Tunnel** carries the traffic, so there's no port forwarding and
+  no Caddy. In Zero Trust → Networks → Tunnels, the published route is:
+  hostname `warpx.online`, empty path, service **HTTP** `localhost:3000`
+  (HTTP, not HTTPS: WarpX speaks plain HTTP, and HTTPS there gives a 502).
+  `cloudflared` is installed as a system service, so it starts at boot.
+- **pm2** keeps WarpX running and restarts it after a reboot. The project
+  lives at `~/WarpX`, not on the Desktop: macOS won't let background
+  processes read Desktop, Documents or Downloads, so pm2 couldn't start it
+  from there.
+- **The Mac must stay awake.** Closing the lid takes the site down. Battery
+  settings → "Prevent automatic sleeping on power adapter when the display is
+  off".
+
+Day to day:
+
+```bash
+cd ~/WarpX && git pull origin claude/warpx-quick-commerce-j2jxmy && pm2 restart warpx   # update
+pm2 logs warpx      # what WarpX is printing
+pm2 status          # is it running?
+```
+
+Don't double-click `start.command` while pm2 is running WarpX: the second
+copy can't get port 3000.
+
+Setting it up again from scratch:
+
+```bash
+npm install -g pm2
+cd ~/WarpX && pm2 start server.js --name warpx
+pm2 startup     # prints a "sudo env PATH=…" line: copy, paste, Enter
+pm2 save
+```
+
+The tunnel token (the long `eyJ…` string in the install command) is a secret,
+like the owner password: anyone holding it can connect as the tunnel and serve
+their own pages at warpx.online. If it's ever shared, refresh it in the tunnel's
+settings, then `sudo cloudflared service uninstall` and
+`sudo cloudflared service install <new token>`.
+
+Behind the tunnel, nothing in WarpX changes. cloudflared connects from
+localhost, which `trust proxy` believes, and Cloudflare sends the real
+visitor's IP and `https`. So the attempt limits count real visitors, and
+session cookies are marked `Secure`.
 
 ## HTTPS with a reverse proxy (no third-party tunnel)
 

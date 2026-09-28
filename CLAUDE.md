@@ -96,8 +96,15 @@ the customer's proof of handover.
 ## Working on it
 
 - Branch: `claude/warpx-quick-commerce-j2jxmy`. The owner runs the site on a
-  Mac at `~/Desktop/WarpX` and pulls from GitHub, so a change only reaches
-  them once it is committed and pushed.
+  MacBook at `~/WarpX` (moved off the Desktop, which macOS hides from
+  background processes) and pulls from GitHub, so a change only reaches them
+  once it is committed and pushed.
+- **It's live at `https://warpx.online`** through a Cloudflare Tunnel, with
+  WarpX kept running by pm2. So instructions for the owner end in
+  `pm2 restart warpx`, not `npm start`. Starting a second copy fails on the
+  port. See the README's "Running it for real".
+- **The owner isn't technical.** Give copy-paste commands with the folder
+  spelled out, and say what a command will print.
 - `warpx.db` is gitignored. Deleting it and restarting rebuilds an empty one —
   that is how test orders and planner data get cleared.
 - **There is no committed test suite.** Verification is throwaway Playwright
@@ -131,13 +138,14 @@ the customer's proof of handover.
 | Install to home screen, caching | Installable app (PWA) |
 | Logins, sessions, owner password, n8n key, rate limits | Accounts, sessions and the owner password |
 | Google sign-in setup | Sign in with Google |
-| Serving over HTTPS | HTTPS with a reverse proxy |
+| How the live site runs, restarting, updating | Running it for real (Cloudflare Tunnel + pm2) |
+| Serving over HTTPS without Cloudflare | HTTPS with a reverse proxy |
 | What is still broken | Known limitations |
 
 ## Security posture
 
-Locked down for a site reachable from the internet (the owner runs it through
-ngrok). There are HttpOnly session cookies for customers, drivers and the
+Locked down for a site reachable from the internet (public at warpx.online
+through a Cloudflare Tunnel). There are HttpOnly session cookies for customers, drivers and the
 owner. The owner password lives in `warpx-secrets.json` and is checked on the
 server. Password, sign-up, driver sign-in and delivery-code attempts are
 rate-limited, and only the site's own files are served. What's still open is

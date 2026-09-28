@@ -765,6 +765,33 @@ phone + password form carries on. It also hides on an address Google can never
 accept — plain `http://` anywhere but localhost, a raw IP like `192.168.1.5`, or
 a `.local` name — and says why in the browser console.
 
+### Letting customers sign in (publishing the app)
+
+A new OAuth app starts in **Testing**, where only listed test users can sign in
+and everyone else gets `403: access_denied`. To open it to customers:
+
+1. Console → **Google Auth Platform → Branding**. Fill in:
+
+   | Field | Value |
+   | --- | --- |
+   | App name | `WarpX` |
+   | User support email | the Google account's own address |
+   | Application home page | `https://warpx.online` |
+   | Application privacy policy link | `https://warpx.online/privacy.html` |
+   | Authorized domains | `warpx.online` |
+   | Developer contact email | the same address |
+
+   Leave the logo empty: uploading one makes Google verify the brand before
+   the app can be published.
+2. Console → **Audience** → **Publish app** → **Confirm**. The status reads
+   **In production**. Name, email and profile are basic scopes, so there's no
+   Google review and no "unverified app" warning.
+
+`privacy.html` is the policy that link points to, and every page's footer links
+to it. It describes what the code actually collects and shares, so a change to
+what WarpX stores or who it sends data to should update that page too. Deletion
+requests arrive by email and are carried out by hand for now.
+
 ### If Google says "Access blocked"
 
 On Google's error page, click **see error details**: the `origin=…` it shows is
@@ -773,7 +800,7 @@ the exact string Google is comparing.
 | Error | Cause | Fix |
 | --- | --- | --- |
 | `400: origin_mismatch` | That origin isn't registered on the OAuth client | Add it under **Authorized JavaScript origins** (step 2). Check you're editing the client whose ID is in `config.js` — changing a different one does nothing. Google says a change takes 5 minutes to a few hours; retry in a private window |
-| `403: access_denied` | The consent screen is in **Testing**, and this Google account isn't a test user | Console → **Audience** → add the address as a test user, or publish the app. Email and profile are basic scopes, so publishing needs no Google review |
+| `403: access_denied` | The consent screen is in **Testing**, and this Google account isn't a test user | Publish the app (see "Letting customers sign in" above), or add the address as a test user under **Audience** |
 | `origin=` is a `192.168…` or `.local` address | Google refuses those outright; no setting fixes it | Use `https://warpx.online` on the phone, or `http://localhost:3000` on the Mac. The button now hides itself on these addresses |
 
 ### The token is verified server-side

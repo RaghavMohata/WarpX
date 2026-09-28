@@ -18,7 +18,7 @@ npm install && npm start   # http://localhost:3000
 ```
 
 **No React. No Tailwind. No bundler. No build step.** Two dependencies:
-`express` and `google-auth-library`. Thirteen pages are plain `.html` files
+`express` and `google-auth-library`. Sixteen pages are plain `.html` files
 you edit directly and reload.
 
 That is a boundary, not an oversight. A request that implies a framework — a
@@ -98,6 +98,12 @@ and `admin.html` deliberately load **no** `js/main.js`.
 seconds; `showTab()` toggles `style.display`, and the refresh restores any
 half-typed delivery code by scanning `input[id^='otp-']`. Re-rendering on a tab
 change would throw away a code a rider is midway through typing.
+
+**`privacy.html` is a promise about the code.** Google's sign-in is published
+to real customers on the strength of it: it lists every field WarpX stores and
+everyone it goes to (riders, restaurants, Cloudflare, Google, the messaging
+apps n8n uses). Storing something new, or sending data somewhere new, means
+updating that page in the same change.
 
 **The delivery code never appears on the driver's page.** `driver.html`
 contains no `delivery_code` reference, and should stay that way — the code is

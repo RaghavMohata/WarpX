@@ -73,7 +73,7 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 
 | Endpoint | What it does |
 |---|---|
-| `POST /api/auth/signup` | Create an account — phone + password (hashed before it touches the database), optional email; starts a session |
+| `POST /api/auth/signup` | Create an account — phone + password (hashed before it touches the database), optional email; starts a session. If an email was given, one welcome email goes out through the `N8N_WELCOME_WEBHOOK_URL` workflow ("WarpX Welcome Email" in n8n, where its wording lives); first-time Google sign-ups (`/api/auth/google/complete`) get it too |
 | `POST /api/auth/login` | Log into an existing account — verifies the password, never the other way around; starts a session |
 | `POST /api/auth/logout` | End one session — `{ "kind": "user" }`, `"driver"` or `"admin"` |
 | `POST /api/admin/login` | The owner's password, checked on the server; starts an owner session |

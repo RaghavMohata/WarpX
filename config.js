@@ -44,6 +44,12 @@ module.exports = {
      instead. */
   N8N_RESET_WEBHOOK_URL: "http://localhost:5678/webhook/password-reset",
 
+  /* Where n8n's "welcome email" webhook is listening. Called once when an
+     account is created with an email on it, with { customerName,
+     customerEmail }; the email's wording is in the n8n workflow. Leave it
+     empty and sign-ups send nothing. */
+  N8N_WELCOME_WEBHOOK_URL: "http://localhost:5678/webhook/welcome",
+
   /* How many customers can hold the same weekly delivery slot (e.g. 8 – 10
      am). Once a slot has this many, it greys out on weekly.html and the next
      person picks another — that's what keeps a day's deliveries matched to

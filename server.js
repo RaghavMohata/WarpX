@@ -215,6 +215,15 @@ function notifyN8nCustomer({ userId, orderNumber, total, paymentMethod, etaMin, 
   });
 }
 
+/* One welcome email when an account is created — never on later logins. The
+   wording lives in n8n's "WarpX Welcome Email" workflow so it can be edited
+   there; skipped for anyone who signed up without an email. */
+function notifyN8nWelcome(row) {
+  const url = process.env.N8N_WELCOME_WEBHOOK_URL || config.N8N_WELCOME_WEBHOOK_URL;
+  if (!url || !row.email) return;
+  postToN8n(url, { customerName: row.name, customerEmail: row.email });
+}
+
 /* ---- The cafe's order email ----------------------------------------------
    Rides on the new-order webhook as `cafe` whenever an order includes food
    (null otherwise): a ready-made subject, HTML and text for n8n's Send Email
@@ -379,6 +388,7 @@ app.post("/api/auth/google/complete", (req, res) => {
   googleAuth.consumeTicket(ticket);
   const row = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
   sessions.startSession(db, req, res, "user", row.id);
+  notifyN8nWelcome(row);
   res.json({ status: "created", user: googleUserResponse(row) });
 });
 
@@ -470,6 +480,7 @@ app.post("/api/auth/signup", (req, res) => {
     .run(name || null, phone, checkedEmail.email, hash, salt);
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
   sessions.startSession(db, req, res, "user", user.id);
+  notifyN8nWelcome(user);
   res.json(publicUser(user));
 });
 

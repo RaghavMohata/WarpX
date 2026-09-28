@@ -496,6 +496,77 @@ app.post("/api/auth/logout", (req, res) => {
   res.json({ ok: true });
 });
 
+/* ---- Forgot password -------------------------------------------------------
+   A 6-digit code goes to the email on the account (through n8n, same as the
+   order emails) and is good for 15 minutes. Only its hash is stored, and five
+   wrong guesses kill it, so the million possible codes can't be tried out.
+   Accounts with no email get pointed at the owner, who can reset it from the
+   dashboard. */
+const resetRequestLimiter = createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
+const resetCodeLimiter = createLimiter({ max: 5, windowMs: 15 * 60 * 1000 });
+
+function maskEmail(email) {
+  const [name, domain] = email.split("@");
+  return `${name[0]}•••@${domain}`;
+}
+
+app.post("/api/auth/reset/request", (req, res) => {
+  // Counted per attempt: each one sends an email, so this is also what stops
+  // someone flooding a customer's inbox.
+  if (resetRequestLimiter.blocked(req.ip)) return tooMany(res, resetRequestLimiter, req.ip);
+  resetRequestLimiter.fail(req.ip);
+  const url = process.env.N8N_RESET_WEBHOOK_URL || config.N8N_RESET_WEBHOOK_URL;
+  const phone = String((req.body || {}).phone || "").trim();
+  const user = phone && db.prepare("SELECT id, email FROM users WHERE phone = ?").get(phone);
+  if (!user) return res.status(404).json({ error: "No WarpX account uses that number." });
+  if (!user.email || !url) return res.status(404).json({ error: "There's no email on this account, so we can't send a code. Call us and we'll reset it for you.", noEmail: true });
+
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+  db.prepare("UPDATE users SET reset_code_hash = ?, reset_expires_at = datetime('now', '+15 minutes') WHERE id = ?")
+    .run(sessions.hashToken(code), user.id);
+  resetCodeLimiter.reset(phone);
+  postToN8n(url, {
+    to: user.email,
+    subject: `Your WarpX password reset code: ${code}`,
+    text: `Your WarpX password reset code is ${code}. It works for 15 minutes. If you didn't ask for this, ignore this email; your password hasn't changed.`,
+    html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#222;max-width:480px">
+<p>Here's your code to reset your WarpX password:</p>
+<p style="font-size:28px;letter-spacing:6px;font-weight:bold;margin:0">${code}</p>
+<p style="color:#555;font-size:13px">It works for 15 minutes. Never share it with anyone, including our delivery partners. If you didn't ask for this, ignore this email; your password hasn't changed.</p>
+<p>Team WarpX</p></div>`,
+  });
+  res.json({ sentTo: maskEmail(user.email) });
+});
+
+app.post("/api/auth/reset/confirm", (req, res) => {
+  const { code, password } = req.body || {};
+  const phone = String((req.body || {}).phone || "").trim();
+  if (resetCodeLimiter.blocked(phone)) {
+    return tooMany(res, resetCodeLimiter, phone, "Too many wrong codes. Ask for a new code in a few minutes.");
+  }
+  if (!password || password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters." });
+  const user = phone && db.prepare(
+    "SELECT * FROM users WHERE phone = ? AND reset_code_hash IS NOT NULL AND reset_expires_at > datetime('now')"
+  ).get(phone);
+  if (!user || !secrets.safeEqual(sessions.hashToken(String(code || "").trim()), user.reset_code_hash)) {
+    resetCodeLimiter.fail(phone);
+    // The fifth wrong guess spends the code: a new one has to be emailed.
+    if (user && resetCodeLimiter.blocked(phone)) {
+      db.prepare("UPDATE users SET reset_code_hash = NULL, reset_expires_at = NULL WHERE id = ?").run(user.id);
+    }
+    return res.status(401).json({ error: "That code is wrong or has expired." });
+  }
+
+  const { hash, salt } = hashPassword(password);
+  db.prepare("UPDATE users SET password_hash = ?, password_salt = ?, reset_code_hash = NULL, reset_expires_at = NULL WHERE id = ?")
+    .run(hash, salt, user.id);
+  // Whoever might have been signed in with the old password is out.
+  db.prepare("DELETE FROM sessions WHERE kind = 'user' AND subject_id = ?").run(user.id);
+  resetCodeLimiter.reset(phone);
+  sessions.startSession(db, req, res, "user", user.id);
+  res.json(publicUser(user));
+});
+
 /* ---- The owner ------------------------------------------------------------
    The dashboard used to compare a PIN inside admin.html — readable by anyone
    with view-source — and the API behind it checked nothing. The password now
@@ -563,9 +634,14 @@ app.patch("/api/users/:id", requireUser, (req, res) => {
   }
 
   let newPhone = user.phone;
-  if (phone !== undefined && String(phone).trim() !== user.phone) {
+  if (phone !== undefined) {
     newPhone = String(phone).trim();
     if (!newPhone) return res.status(400).json({ error: "We need a mobile number to deliver to." });
+  }
+
+  // The email is where a password reset code goes, so changing it is as good
+  // as changing the password: both it and the phone need the password.
+  if (newEmail !== user.email || newPhone !== user.phone) {
     const refused = confirmIdentity(req, res, user);
     if (refused) return;
   }

@@ -142,14 +142,20 @@ async function accountRequest(method, body) {
 
 async function saveAccount(e) {
   e.preventDefault();
-  const { ok, data } = await accountRequest("PATCH", {
-    phone: document.getElementById("acctPhone").value,
-    email: document.getElementById("acctEmail").value,
-  });
+  // Only what was actually edited: an older login may not have cached the
+  // email, and sending that empty box back would wipe the real one.
+  const changes = {};
+  for (const [key, id] of [["phone", "acctPhone"], ["email", "acctEmail"]]) {
+    const input = document.getElementById(id);
+    if (input.value.trim() !== input.defaultValue) changes[key] = input.value;
+  }
+  if (!Object.keys(changes).length) return showToast("Nothing changed.");
+  const { ok, data } = await accountRequest("PATCH", changes);
   if (!ok) return showToast(data.error || "Couldn't save. Try again.");
   const user = getWarpxUser();
   localStorage.setItem("warpx_user", JSON.stringify({ ...user, phone: data.phone, email: data.email }));
   showToast("Account updated.");
+  document.getElementById("accountForm").style.display = "none";
   loadOrders();
 }
 
@@ -253,7 +259,7 @@ async function loadOrders() {
         <div class="field">
           <label for="acctPassword">Current password</label>
           <input type="password" id="acctPassword" autocomplete="current-password">
-          <p class="hint">Needed to change your number or delete your account. Signed up with Google? Leave it empty. Forgot it? Call us and we'll reset it.</p>
+          <p class="hint">Needed to change your number or email, or to delete your account. Signed up with Google? Leave it empty. Forgot it? Log out and tap <b>Forgot password?</b> on the login page.</p>
         </div>
         <div class="row-between" style="flex-wrap:wrap;gap:12px;">
           <button type="submit" class="btn btn-primary btn-sm">Save changes</button>

@@ -79,7 +79,9 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `POST /api/admin/login` | The owner's password, checked on the server; starts an owner session |
 | `GET /api/admin/session` | 200 if this browser holds a live owner session — how `admin.html` decides whether to show the password box |
 | `POST /api/admin/users/reset-password` | Owner only: `{ phone }` → a one-time `tempPassword` for a customer who forgot theirs, and signs out all their sessions. Confirm it's really them (call the number back) before reading it out |
-| `PATCH /api/users/:id` | Change your own `email` and/or `phone`. A new phone needs `password` (or `confirm: true` on a Google-only account); 401 `needsPassword` / `needsConfirm` otherwise, 409 if the number is taken |
+| `POST /api/auth/reset/request` | "Forgot password?" step 1: `{ phone }` → emails a 6-digit code (valid 15 min, only its hash stored) to the account's email through the `N8N_RESET_WEBHOOK_URL` workflow, answers `{ sentTo }` with the address masked. 404 `noEmail` when there's no email on file (the owner reset above is the fallback). 10 requests / 15 min per IP |
+| `POST /api/auth/reset/confirm` | Step 2: `{ phone, code, password }` → sets the new password, ends every session on the account and signs this browser in. Five wrong codes in 15 minutes spend the code |
+| `PATCH /api/users/:id` | Change your own `email` and/or `phone`. Either change needs `password` (the email is where reset codes go) (or `confirm: true` on a Google-only account); 401 `needsPassword` / `needsConfirm` otherwise, 409 if the number is taken |
 | `DELETE /api/users/:id` | Delete your own account, same confirmation as a phone change. Refused (409) while an order is undelivered. Orders are kept for the owner's books but lose their link to the person, address, map pin, UPI id and delivery code; addresses, locations, weekly plans and sessions are deleted |
 | `POST /api/users/:id/location` | Save a captured location; computes and returns the delivery zone/ETA server-side via `lib/zone.js` |
 | `GET /api/users/:id/location` | Fetch a user's most recent saved location |

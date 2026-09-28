@@ -38,6 +38,12 @@ module.exports = {
      changes. */
   N8N_CUSTOMER_WEBHOOK_URL: "http://localhost:5678/webhook/customer-order",
 
+  /* Where n8n's "password reset" webhook is listening. WarpX sends a ready-made
+     { to, subject, html, text } email carrying a 6-digit reset code; n8n only
+     sends it. Leave it empty and "Forgot password?" tells customers to call
+     instead. */
+  N8N_RESET_WEBHOOK_URL: "http://localhost:5678/webhook/password-reset",
+
   /* How many customers can hold the same weekly delivery slot (e.g. 8 – 10
      am). Once a slot has this many, it greys out on weekly.html and the next
      person picks another — that's what keeps a day's deliveries matched to

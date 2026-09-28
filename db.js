@@ -186,7 +186,7 @@ db.exec(`
 `);
 
 // Safe migrations for a warpx.db created before these columns existed.
-for (const col of ["password_hash TEXT", "password_salt TEXT", "email TEXT", "google_sub TEXT", "avatar_url TEXT"]) {
+for (const col of ["password_hash TEXT", "password_salt TEXT", "email TEXT", "google_sub TEXT", "avatar_url TEXT", "reset_code_hash TEXT", "reset_expires_at TEXT"]) {
   try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch (e) {}
 }
 for (const col of ["google_sub TEXT", "email TEXT"]) {

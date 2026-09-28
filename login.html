@@ -95,6 +95,23 @@
             <input type="password" id="authPassword" placeholder="At least 6 characters" autocomplete="current-password">
             <button type="button" class="btn btn-ghost" style="flex:0 0 auto;" onclick="togglePasswordVisibility('authPassword', this)" aria-label="Show password">👁️</button>
           </div>
+          <p class="hint" id="forgotLink"><a href="#" onclick="toggleReset(event)">Forgot password?</a></p>
+        </div>
+        <div class="card" id="resetPanel" style="display:none;padding:18px;margin-bottom:16px;">
+          <p class="hint" style="margin-top:0;">We'll email a 6-digit code to the address on your account.</p>
+          <button type="button" class="btn btn-primary btn-sm" onclick="requestResetCode(this)">Email me a code</button>
+          <div id="resetStep2" style="display:none;margin-top:14px;">
+            <p class="hint" id="resetSentTo" translate="no"></p>
+            <div class="field">
+              <label for="resetCode">Code from the email</label>
+              <input type="text" id="resetCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" translate="no">
+            </div>
+            <div class="field">
+              <label for="resetNewPassword">New password</label>
+              <input type="password" id="resetNewPassword" placeholder="At least 6 characters" autocomplete="new-password">
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="confirmReset(this)">Reset and log in</button>
+          </div>
         </div>
         <div class="field" id="confirmPasswordField" style="display:none;">
           <label for="authConfirmPassword">Confirm password</label>
@@ -140,7 +157,7 @@
 
         <div id="zoneResult"></div>
 
-        <button class="btn btn-primary btn-block" style="margin-top:18px;" onclick="completeLogin(this)">Continue</button>
+        <button class="btn btn-primary btn-block" id="loginBtn" style="margin-top:18px;" onclick="completeLogin(this)">Continue</button>
       </div>
 
     </div>
@@ -209,8 +226,59 @@ document.getElementById("authSeg").addEventListener("click", (e) => {
   document.getElementById("nameField").style.display = isSignup ? "block" : "none";
   document.getElementById("confirmPasswordField").style.display = isSignup ? "block" : "none";
   document.getElementById("emailField").style.display = isSignup ? "block" : "none";
+  document.getElementById("forgotLink").style.display = isSignup ? "none" : "block";
+  if (isSignup) document.getElementById("resetPanel").style.display = "none";
   document.getElementById("authPassword").setAttribute("autocomplete", isSignup ? "new-password" : "current-password");
 });
+
+/* ---- Forgot password: a code emailed via n8n, then a new password -------- */
+function toggleReset(e) {
+  e.preventDefault();
+  const panel = document.getElementById("resetPanel");
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+}
+
+async function postJson(url, body) {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return { ok: res.ok, data: await res.json().catch(() => ({})) };
+}
+
+async function requestResetCode(btn) {
+  const phone = document.getElementById("authPhone").value.trim();
+  if (!phone) return showToast("Enter your mobile number above first.");
+  btn.disabled = true;
+  try {
+    const { ok, data } = await postJson("/api/auth/reset/request", { phone });
+    if (!ok) {
+      return showToast(data.noEmail ? data.error + " Email raghavmohata24@gmail.com." : data.error || "Couldn't send a code. Try again.");
+    }
+    document.getElementById("resetSentTo").textContent = `Code sent to ${data.sentTo}. Check spam if it isn't there in a minute.`;
+    document.getElementById("resetStep2").style.display = "block";
+    btn.textContent = "Send another code";
+    document.getElementById("resetCode").focus();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// A successful reset fills in the new password and runs the normal login, so
+// the location save and redirect happen exactly as they always do.
+async function confirmReset(btn) {
+  const phone = document.getElementById("authPhone").value.trim();
+  const password = document.getElementById("resetNewPassword").value;
+  if (password.length < 6) return showToast("Password must be at least 6 characters.");
+  btn.disabled = true;
+  try {
+    const { ok, data } = await postJson("/api/auth/reset/confirm", { phone, code: document.getElementById("resetCode").value, password });
+    if (!ok) return showToast(data.error || "Couldn't reset it. Try again.");
+    document.getElementById("authPassword").value = password;
+    document.getElementById("resetPanel").style.display = "none";
+    showToast("Password changed. Logging you in…");
+    completeLogin(document.getElementById("loginBtn"));
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 function togglePasswordVisibility(inputId, btn) {
   const input = document.getElementById(inputId);
@@ -398,7 +466,7 @@ async function completeLogin(btn) {
       body: JSON.stringify(saved),
     });
 
-    localStorage.setItem("warpx_user", JSON.stringify({ id: data.id, name: data.name, phone: data.phone }));
+    localStorage.setItem("warpx_user", JSON.stringify({ id: data.id, name: data.name, phone: data.phone, email: data.email }));
     showToast(`Welcome${data.name ? ", " + data.name : ""}! You're in our ${saved.zone} zone (~${saved.etaMin} min delivery).`);
     setTimeout(() => { window.location.href = getRedirectTarget(); }, 1200);
   } finally {

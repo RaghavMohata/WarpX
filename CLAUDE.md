@@ -62,7 +62,7 @@ footer at the bottom. The other `lib/*.js` (`zone`, `tier`, `route`, `auth`,
 unconstrained.
 
 **Bump `VERSION` in `sw.js` whenever shared CSS or JS changes shape.**
-Currently `warpx-v11`. Pages are network-first, but assets are cache-first —
+Currently `warpx-v12`. Pages are network-first, but assets are cache-first —
 without a bump, a returning visitor runs one page-load of yesterday's
 JavaScript against today's API.
 

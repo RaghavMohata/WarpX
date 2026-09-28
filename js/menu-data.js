@@ -76,9 +76,42 @@ const PICASSO_MENU = [
   },
 ];
 
+/* Restaurants shown on the food page with their menus still to come. Names
+   and areas only: none of these takes orders yet.
+
+   Before one of them gets a menu, orders need routing to the right kitchen.
+   Today every food order is priced from PICASSO_MENU, emailed to Picasso,
+   and collected from Picasso's address ("One cafe" under Known limitations
+   in the README), so another restaurant's items would go to Picasso.
+
+   This file is public. A restaurant's email, phone and exact pickup address
+   belong on the server, not here. `area: null` shows as "Brahmapuri". */
+const RESTAURANTS = [
+  { id: "annapurna", name: "Annapurna Lawn & Family Restaurant", kind: "Family restaurant", icon: "🍛", area: "Near the toll gate" },
+  { id: "blossom", name: "Blossom Cakes & Cafe", kind: "Bakery & cafe", icon: "🍰", area: "Armori Road, beside Alankar Theatre" },
+  { id: "bramhapuri-wadapao", name: "Bramhapuri Wadapao", kind: "Vada pav takeaway", icon: "🍔", area: "Hutatma Smarak, Wadsa Road" },
+  { id: "chill-out", name: "Chill Out Restaurant & Bar", kind: "Restaurant & bar", icon: "🍽️", area: null },
+  { id: "flavours", name: "Flavour's Restaurant", kind: "Restaurant", icon: "🍽️", area: null },
+  { id: "foodi", name: "Foodi Snack Zone", kind: "Cakes & fast food", icon: "☕", area: "Near Fawara Chowk" },
+  { id: "anand", name: "Hotel Anand", kind: "Family restaurant", icon: "🍛", area: null },
+  { id: "reewin", name: "Hotel Reewin", kind: "Restaurant", icon: "🍽️", area: "Nagbhid Road, opp. Rakhde Hospital" },
+  { id: "samadhan", name: "Hotel Samadhan", kind: "Family restaurant", icon: "🍛", area: null },
+  { id: "kranti-mangalam", name: "Kranti Mangalam Restaurant", kind: "Restaurant", icon: "🍽️", area: null },
+  { id: "new-saoji", name: "New Saoji Dhaba", kind: "Dhaba", icon: "🍛", area: null },
+  { id: "pints-and-plate", name: "Pints and Plate Restro", kind: "Restaurant", icon: "🍽️", area: "Ranmochan" },
+  { id: "rishta", name: "Rishta Restaurant", kind: "Family restaurant", icon: "🍛", area: null },
+  { id: "saoji-sharda", name: "Saoji Sharda Family Restaurant & Dhaba", kind: "Dhaba", icon: "🍛", area: "Armori–Nagpur Highway" },
+  { id: "tealogy", name: "Tealogy Cafe", kind: "Cafe", icon: "☕", area: "Christanand Square, opp. CDCC Bank" },
+  { id: "deveshri", name: "The Deveshri Dine In", kind: "Self-service restaurant", icon: "🍽️", area: "Opposite Barai Lake, Wadsa Road" },
+  { id: "lakeside", name: "The Lakeside Cafe & Restaurant", kind: "Cafe & restaurant", icon: "☕", area: "Sheshnagar, near Ganvir Hospital" },
+  { id: "ujwal", name: "Ujwal Bar & Restaurant", kind: "Restaurant & bar", icon: "🍽️", area: null },
+  { id: "vada-pav-center", name: "Vada Pav Center", kind: "Fast food", icon: "🍔", area: "Nagbhid Road, near Ladukar Hospital" },
+  { id: "zayka", name: "Zayka Chinese Centre", kind: "Chinese", icon: "🥡", area: "Nagpur Highway, near Sai Petrol Pump" },
+];
+
 // Present when required by Node, harmless when this runs as a browser script.
 // The server prices every cafe order from this same list, so the menu the
 // customer sees and the menu they're charged from cannot drift apart.
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { PICASSO_MENU };
+  module.exports = { PICASSO_MENU, RESTAURANTS };
 }

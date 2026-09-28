@@ -86,6 +86,16 @@
         <button class="btn btn-primary" onclick="addCustomFood()">Add to order</button>
       </div>
     </div>
+
+    <div id="soonSection" class="soon-section" hidden>
+      <div class="menu-cat-title">
+        <span style="font-size:1.4rem;">🍽️</span>
+        <h3>More restaurants, menus coming soon</h3>
+        <div class="line"></div>
+      </div>
+      <p class="text-muted">Want something from one of them today? Ask on <a href="anything.html" style="color:var(--violet-bright);font-weight:600;">Anything Else</a> and a rider will pick it up for you.</p>
+      <div class="grid grid-2 soon-grid" id="soonGrid"></div>
+    </div>
   </div>
 </section>
 
@@ -258,7 +268,24 @@ function addCustomFood() {
   input.value = "";
 }
 
+/* Listed without a menu yet: plain cards, no button, nothing to tap. The
+   typeof check covers the one visit where the service worker still hands out
+   yesterday's menu-data.js, which has no RESTAURANTS. */
+function renderComingSoon() {
+  if (typeof RESTAURANTS === "undefined" || !RESTAURANTS.length) return;
+  document.getElementById("soonGrid").innerHTML = RESTAURANTS.map((r) => `
+    <div class="soon-card">
+      <div class="soon-icon" aria-hidden="true">${r.icon}</div>
+      <div style="min-width:0;">
+        <div class="soon-name" translate="no">${esc(r.name)}</div>
+        <p class="soon-meta">${esc(r.kind)} · <span translate="no">${esc(r.area || "Brahmapuri")}</span></p>
+      </div>
+    </div>`).join("");
+  document.getElementById("soonSection").hidden = false;
+}
+
 renderMenu();
+renderComingSoon();
 </script>
 <script src="js/translate.js"></script>
 <script src="/js/pwa.js"></script>

@@ -129,7 +129,7 @@
       <div>
         <h4>Delivery</h4>
         <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">One flat fee for the whole week</span>
-        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Brahmapuri, Wadsa &amp; the road between</span>
       </div>
     </div>
     <div class="footer-bottom">
@@ -142,6 +142,7 @@
 <script src="lib/schedule.js"></script>
 <script src="lib/weekly.js"></script>
 <script src="js/cart.js"></script>
+<script src="lib/zone.js"></script>
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
 <script>
@@ -375,7 +376,7 @@ async function loadPlanner() {
       <p>Deliveries run ${esc(formatDayDate(firstDay.date))} to ${esc(formatDayDate(lastDay.date))}.
       ${existingPlan
         ? "Changes replace what you booked, and you'll get new delivery codes."
-        : "One flat delivery fee covers the whole week, however many days you pick."}
+        : "One flat delivery fee covers the whole week, however many days you pick. Outside Brahmapuri, each day also adds the distance charge."}
       ${lastWeekPlan && !existingPlan ? `<br><button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="copyLastWeek()">↺ Copy last week's list</button>` : ""}</p>
     </div>`;
 

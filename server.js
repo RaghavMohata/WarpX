@@ -8,11 +8,11 @@ const db = require("./db");
 const sessions = require("./lib/session");
 const secrets = require("./lib/secrets");
 const { createLimiter } = require("./lib/ratelimit");
-const { classifyZone } = require("./lib/zone");
+const { classifyZone, coverageFor } = require("./lib/zone");
 const { hashPassword, verifyPassword } = require("./lib/auth");
 const googleAuth = require("./lib/google");
 const { tierFor, payFor, payIfOneMore, BASE_PAY_PER_DELIVERY } = require("./lib/tier");
-const { feeFor, weeklyPlanFee } = require("./lib/fee");
+const { deliveryFeeFor, weeklyPlanFee } = require("./lib/fee");
 const { validateSchedule, parseSchedule, formatSchedule, isDueForDispatch, isOpenNow, nextOpeningSlot,
         SCHEDULE_OPEN_HOUR, SCHEDULE_CLOSE_HOUR } = require("./lib/schedule");
 const { isWindowOpen, DELIVERY_SLOTS, slotById, weekDates, dayLabelFor, scheduledForDay, addDays } = require("./lib/weekly");
@@ -41,7 +41,7 @@ const PUBLIC_ROOT_FILES = new Set([
   "sw.js",
   "manifest.webmanifest",
 ]);
-const PUBLIC_LIB_FILES = new Set(["fee.js", "schedule.js", "weekly.js"]);
+const PUBLIC_LIB_FILES = new Set(["fee.js", "schedule.js", "weekly.js", "zone.js"]);
 
 for (const dir of ["css", "js", "img"]) {
   app.use(`/${dir}`, express.static(path.join(__dirname, dir), { fallthrough: false }));
@@ -825,6 +825,18 @@ app.delete("/api/addresses/:id", requireUser, (req, res) => {
   res.json({ ok: true });
 });
 
+/* Saved addresses and location captures store the zone, distance and ETA
+   they were given when saved. Those used to be measured from a placeholder
+   store in Bhopal, so every row is re-measured against today's area on
+   start. A handful of rows; cheap enough to simply redo each boot. */
+for (const table of ["addresses", "locations"]) {
+  const update = db.prepare(`UPDATE ${table} SET zone = ?, distance_km = ?, eta_min = ? WHERE id = ?`);
+  for (const row of db.prepare(`SELECT id, lat, lng FROM ${table}`).all()) {
+    const z = classifyZone(row.lat, row.lng);
+    update.run(z.zone, z.distanceKm, z.etaMin, row.id);
+  }
+}
+
 /* Where an order is going, in order of preference: the address the customer
    picked at checkout, their default saved address, and finally the last raw
    GPS capture — so someone who has never saved an address still orders
@@ -839,31 +851,45 @@ function resolveOrderAddress(userId, addressId) {
     chosenAddress = db.prepare("SELECT * FROM addresses WHERE user_id = ? AND is_default = 1").get(userId);
   }
   const loc = chosenAddress || getLatestLocation(userId);
-  return { chosenAddress, loc, etaMin: loc ? loc.eta_min : "20-30" };
+  // Worked out fresh from the coordinates, never from the stored zone: that
+  // is what decides the distance charge, so it has to be today's rules.
+  const cov = loc ? coverageFor(loc.lat, loc.lng) : null;
+  return { chosenAddress, loc, cov, etaMin: cov && cov.etaMin };
+}
+
+/* An order has to go somewhere we deliver. Answers the refusal, or null. */
+function refuseOutOfArea(res, loc, cov) {
+  if (!loc) return res.status(400).json({ error: "Set your delivery location first.", needsLocation: true });
+  if (!cov.served) {
+    return res.status(400).json({ error: "We don't deliver there yet. We cover Brahmapuri, Wadsa and the road between them.", outOfArea: true });
+  }
+  return null;
 }
 
 /* Writes one order and its line items. Deliberately does NOT open its own
    transaction: a weekly plan is several orders that have to land together or
    not at all, so the caller owns the transaction boundary. */
-function insertOrderWithItems({ userId, priced, subtotal, deliveryFee, method, upiId, loc, chosenAddress, scheduledFor, weeklyWindowId }) {
+function insertOrderWithItems({ userId, priced, subtotal, deliveryFee, distanceFee, method, upiId, loc, cov, chosenAddress, scheduledFor, weeklyWindowId }) {
   const orderNumber = "WPX" + Math.floor(100000 + Math.random() * 900000);
   // 4-digit handover code, only ever shown to the customer.
   const deliveryOtp = String(crypto.randomInt(1000, 10000));
 
   const orderInfo = db
     .prepare(
-      `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id, lat, lng, address, delivery_otp, address_label, scheduled_for, weekly_window_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO orders (order_number, user_id, subtotal, delivery_fee, total, eta_min, payment_method, upi_id, lat, lng, address, delivery_otp, address_label, scheduled_for, weekly_window_id, distance_fee, area)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       orderNumber, userId, subtotal, deliveryFee, subtotal + deliveryFee,
-      loc ? loc.eta_min : "20-30", method,
+      cov.etaMin, method,
       method === "upi" ? upiId || null : null,
       loc ? loc.lat : null, loc ? loc.lng : null, loc ? loc.address : null,
       deliveryOtp,
       chosenAddress ? chosenAddress.label : null,
       scheduledFor || null,
-      weeklyWindowId || null
+      weeklyWindowId || null,
+      distanceFee || 0,
+      cov.area
     );
   const orderId = orderInfo.lastInsertRowid;
 
@@ -917,9 +943,11 @@ app.post("/api/orders", requireUser, (req, res) => {
   const subtotal = priced.reduce((sum, it) => sum + (it.price || 0) * (it.qty || 1), 0);
   // Priced server-side from the real subtotal — the browser's figure is only
   // ever a preview, never what gets charged.
-  const deliveryFee = feeFor(subtotal);
+  const { chosenAddress, loc, cov, etaMin } = resolveOrderAddress(userId, addressId);
+  if (refuseOutOfArea(res, loc, cov)) return;
+  const fee = deliveryFeeFor(subtotal, cov.distanceKm);
+  const deliveryFee = fee.total;
   const total = subtotal + deliveryFee;
-  const { chosenAddress, loc, etaMin } = resolveOrderAddress(userId, addressId);
 
   // Order + its line items must land together — wrap in a transaction so a
   // failure partway through (e.g. a bad item) never leaves an order with
@@ -928,7 +956,7 @@ app.post("/api/orders", requireUser, (req, res) => {
   db.exec("BEGIN");
   try {
     ({ orderId, orderNumber, deliveryOtp } = insertOrderWithItems({
-      userId, priced, subtotal, deliveryFee, method, upiId, loc, chosenAddress, scheduledFor,
+      userId, priced, subtotal, deliveryFee, distanceFee: fee.distance, method, upiId, loc, cov, chosenAddress, scheduledFor,
     }));
     db.exec("COMMIT");
   } catch (err) {
@@ -943,6 +971,9 @@ app.post("/api/orders", requireUser, (req, res) => {
     items: priced.map((it) => ({ name: it.name, qty: it.qty || 1, price: it.price })),
     subtotal,
     deliveryFee,
+    distanceFee: fee.distance,
+    area: cov.area,
+    distanceKm: Math.round(cov.distanceKm * 10) / 10,
     total,
     paymentMethod: method,
     pickupAddress: pickupAddressFor(priced),
@@ -954,7 +985,7 @@ app.post("/api/orders", requireUser, (req, res) => {
   });
   notifyN8nCustomer({ userId, orderNumber, total, paymentMethod: method, etaMin, scheduledFor, deliveryOtp });
 
-  res.json({ orderId, orderNumber, subtotal, deliveryFee, total, etaMin, paymentMethod: method, status: "placed", deliveryOtp, addressLabel: chosenAddress ? chosenAddress.label : null, scheduledFor });
+  res.json({ orderId, orderNumber, subtotal, deliveryFee, distanceFee: fee.distance, area: cov.area, total, etaMin, paymentMethod: method, status: "placed", deliveryOtp, addressLabel: chosenAddress ? chosenAddress.label : null, scheduledFor });
 });
 
 /* ---- Weekly vegetable plans ------------------------------------------------
@@ -1157,7 +1188,8 @@ app.post("/api/weekly/plans", requireUser, (req, res) => {
     return res.status(409).json({ error: "That delivery slot just filled up — please pick another.", slotFull: true });
   }
 
-  const { chosenAddress, loc } = resolveOrderAddress(userId, addressId);
+  const { chosenAddress, loc, cov } = resolveOrderAddress(userId, addressId);
+  if (refuseOutOfArea(res, loc, cov)) return;
   const method = paymentMethod === "upi" ? "upi" : "cod";
 
   // Priced server-side, exactly like any other order: the browser's figures
@@ -1179,7 +1211,7 @@ app.post("/api/weekly/plans", requireUser, (req, res) => {
         subtotal: priced.reduce((sum, it) => sum + (it.price || 0) * (it.qty || 1), 0),
       };
     });
-  const fee = weeklyPlanFee(pricedDays.length, pricedDays.map((d) => d.subtotal));
+  const fee = weeklyPlanFee(pricedDays.length, pricedDays.map((d) => d.subtotal), cov.distanceKm);
 
   const created = [];
   db.exec("BEGIN");
@@ -1201,7 +1233,8 @@ app.post("/api/weekly/plans", requireUser, (req, res) => {
         priced: day.priced,
         subtotal: day.subtotal,
         deliveryFee: fee.perOrder[i],
-        method, upiId, loc, chosenAddress, scheduledFor,
+        distanceFee: fee.distancePerOrder,
+        method, upiId, loc, cov, chosenAddress, scheduledFor,
         weeklyWindowId: window.id,
       });
       created.push({ ...written, dayIndex: day.index, date: addDays(window.week_start_date, day.index), deliveryFee: fee.perOrder[i], subtotal: day.subtotal, priced: day.priced, scheduledFor });
@@ -1221,12 +1254,15 @@ app.post("/api/weekly/plans", requireUser, (req, res) => {
       items: order.priced.map((it) => ({ name: it.name, qty: it.qty || 1, price: it.price })),
       subtotal: order.subtotal,
       deliveryFee: order.deliveryFee,
+      distanceFee: fee.distancePerOrder,
+      area: cov.area,
+      distanceKm: Math.round(cov.distanceKm * 10) / 10,
       total: order.subtotal + order.deliveryFee,
       paymentMethod: method,
       pickupAddress: pickupAddressFor(order.priced),
       address: loc ? loc.address : null,
       addressLabel: chosenAddress ? chosenAddress.label : null,
-      etaMin: loc ? loc.eta_min : "20-30",
+      etaMin: cov.etaMin,
       scheduledFor: order.scheduledFor,
       // Always null — a weekly plan is vegetables — but kept so every
       // new-order payload has the same shape.
@@ -1239,7 +1275,7 @@ app.post("/api/weekly/plans", requireUser, (req, res) => {
     planId: planRow.id,
     slotId,
     weekStartDate: window.week_start_date,
-    fee: { mode: fee.mode, total: fee.total },
+    fee: { mode: fee.mode, total: fee.total, distancePerOrder: fee.distancePerOrder },
     orders: created.map((o) => ({
       dayIndex: o.dayIndex, date: o.date, orderId: o.orderId, orderNumber: o.orderNumber,
       deliveryOtp: o.deliveryOtp, deliveryFee: o.deliveryFee, total: o.subtotal + o.deliveryFee,
@@ -1619,14 +1655,15 @@ function earningsBetween(sinceExpr) {
   const dayRows = db
     .prepare(
       `SELECT o.driver_id AS driverId, ${dayCol} AS day,
-              COUNT(*) AS n, COALESCE(SUM(o.delivery_fee), 0) AS fees
+              COUNT(*) AS n, COALESCE(SUM(o.delivery_fee), 0) AS fees,
+              COALESCE(SUM(o.distance_fee), 0) AS distanceFees
        FROM orders o
        WHERE o.status = 'delivered' AND o.driver_id IS NOT NULL ${where}
        GROUP BY o.driver_id, day`
     )
     .all();
   const driverPay = dayRows.reduce(
-    (sum, r) => sum + payFor({ deliveries: r.n, feeTotal: r.fees, percent: tierFor(r.n).percent }).total,
+    (sum, r) => sum + payFor({ deliveries: r.n, feeTotal: r.fees, distanceFeeTotal: r.distanceFees, percent: tierFor(r.n).percent }).total,
     0
   );
 
@@ -1656,7 +1693,8 @@ function payoutRows() {
     .prepare(
       `SELECT o.driver_id AS driverId, d.name AS driverName, d.phone AS driverPhone,
               date(COALESCE(o.delivered_at, o.created_at), 'localtime') AS day,
-              COUNT(*) AS deliveries, COALESCE(SUM(o.delivery_fee), 0) AS fees
+              COUNT(*) AS deliveries, COALESCE(SUM(o.delivery_fee), 0) AS fees,
+              COALESCE(SUM(o.distance_fee), 0) AS distanceFees
        FROM orders o JOIN drivers d ON d.id = o.driver_id
        WHERE o.status = 'delivered' AND o.driver_id IS NOT NULL
        GROUP BY o.driver_id, day
@@ -1667,7 +1705,7 @@ function payoutRows() {
   const paidStmt = db.prepare("SELECT * FROM payouts WHERE driver_id = ? AND day = ?");
   return days.map((r) => {
     const progress = tierFor(r.deliveries);
-    const pay = payFor({ deliveries: r.deliveries, feeTotal: r.fees, percent: progress.percent });
+    const pay = payFor({ deliveries: r.deliveries, feeTotal: r.fees, distanceFeeTotal: r.distanceFees, percent: progress.percent });
     const paid = paidStmt.get(r.driverId, r.day);
     return {
       driverId: r.driverId, driverName: r.driverName, driverPhone: r.driverPhone,
@@ -1792,7 +1830,8 @@ app.post("/api/drivers/login", (req, res) => {
 function driverDayStats(driverId) {
   const row = db
     .prepare(
-      `SELECT COUNT(*) AS n, COALESCE(SUM(delivery_fee), 0) AS fees
+      `SELECT COUNT(*) AS n, COALESCE(SUM(delivery_fee), 0) AS fees,
+              COALESCE(SUM(distance_fee), 0) AS distanceFees
        FROM orders
        WHERE driver_id = ? AND status = 'delivered'
          AND date(COALESCE(delivered_at, created_at), 'localtime') = date('now', 'localtime')`
@@ -1801,7 +1840,7 @@ function driverDayStats(driverId) {
   const lifetime = db
     .prepare("SELECT COUNT(*) AS n FROM orders WHERE driver_id = ? AND status = 'delivered'")
     .get(driverId).n;
-  return { today: row.n, feesToday: row.fees, lifetime };
+  return { today: row.n, feesToday: row.fees, distanceFeesToday: row.distanceFees, lifetime };
 }
 
 // Seconds until the count zeroes, so the hub can show a live countdown
@@ -1818,7 +1857,7 @@ app.get("/api/drivers/:id/summary", requireDriver, (req, res) => {
 
   const stats = driverDayStats(id);
   const progress = tierFor(stats.today);
-  const pay = payFor({ deliveries: stats.today, feeTotal: stats.feesToday, percent: progress.percent });
+  const pay = payFor({ deliveries: stats.today, feeTotal: stats.feesToday, distanceFeeTotal: stats.distanceFeesToday, percent: progress.percent });
 
   const active = db
     .prepare("SELECT * FROM orders WHERE driver_id = ? AND weekly_window_id IS NULL AND status != 'delivered' ORDER BY id ASC")
@@ -1839,7 +1878,7 @@ app.get("/api/drivers/:id/summary", requireDriver, (req, res) => {
     progress,
     pay,
     // What one more average-fee delivery would add, promotion included.
-    nextDeliveryWorth: payIfOneMore({ deliveries: stats.today, feeTotal: stats.feesToday, fee: 30 }),
+    nextDeliveryWorth: payIfOneMore({ deliveries: stats.today, feeTotal: stats.feesToday, distanceFeeTotal: stats.distanceFeesToday, fee: 30 }),
     basePerDelivery: BASE_PAY_PER_DELIVERY,
     lifetimeDeliveries: stats.lifetime,
     resetsInSeconds: secondsUntilReset(),

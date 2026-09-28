@@ -75,7 +75,7 @@
           <span id="checkoutSubtotal"></span>
         </div>
         <div class="row-between" style="margin-bottom:6px;">
-          <span class="text-muted">Delivery fee <small>(by order size)</small></span>
+          <span class="text-muted">Delivery fee <small>(by order size and distance)</small></span>
           <span id="checkoutFee"></span>
         </div>
         <div id="checkoutFeeNudge"></div>
@@ -186,8 +186,8 @@
       </div>
       <div>
         <h4>Delivery</h4>
-        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Delivery ₹20–₹40, by order size</span>
-        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Delivery from ₹20, +₹4/km beyond 3 km</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Brahmapuri, Wadsa &amp; the road between</span>
       </div>
     </div>
     <div class="footer-bottom">
@@ -201,6 +201,7 @@
 <script src="lib/weekly.js"></script>
 <script src="js/addresses.js"></script>
 <script src="js/cart.js"></script>
+<script src="lib/zone.js"></script>
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
 <script>
@@ -414,7 +415,8 @@ function renderWeeklyCheckout() {
         </div>`).join("")}
     </div>`).join("");
 
-  const fee = weeklyPlanFee(days.length, days.map(() => 0));
+  const area = destinationArea();
+  const fee = weeklyPlanFee(days.length, days.map(() => 0), area.km);
   document.getElementById("checkoutSubtotal").textContent = "— vegetables priced at the market";
   document.getElementById("checkoutFee").textContent = "₹" + fee.total;
   // The "add ₹64 more and delivery drops" nudge is about one basket crossing a
@@ -422,6 +424,10 @@ function renderWeeklyCheckout() {
   document.getElementById("checkoutFeeNudge").innerHTML = fee.mode === "flat"
     ? `<div class="fee-nudge fee-nudge-win">One flat fee covers all ${days.length} delivery day${days.length === 1 ? "" : "s"} 🎉</div>`
     : `<div class="fee-nudge">${days.length} delivery day${days.length === 1 ? "" : "s"} × ₹${fee.perOrder[0]}</div>`;
+  if (fee.distancePerOrder) {
+    document.getElementById("checkoutFeeNudge").innerHTML += `<div class="fee-note">Includes ₹${fee.distancePerOrder} a day for the distance (${escapeAttr(area.cov.areaName)}, ${area.km.toFixed(1)} km).</div>`;
+  }
+  document.getElementById("checkoutFeeNudge").innerHTML += areaBlockNote(area);
   document.getElementById("checkoutTotal").textContent = "₹" + fee.total + " + vegetables";
   renderAddressList();
 }
@@ -444,12 +450,42 @@ function renderCheckout() {
   const hasCustom = cart.some((c) => c.price == null);
   const customSuffix = hasCustom ? " + custom items" : "";
   document.getElementById("checkoutSubtotal").textContent = (subtotal > 0 ? "₹" + subtotal : "—") + customSuffix;
-  const fee = feeFor(subtotal);
+  const area = destinationArea();
+  const split = deliveryFeeFor(subtotal, area.km);
+  const fee = split.total;
   document.getElementById("checkoutFee").textContent = "₹" + fee;
-  document.getElementById("checkoutFeeNudge").innerHTML = renderFeeNudge(nextFeeStep(subtotal), fee, hasCustom);
+  document.getElementById("checkoutFeeNudge").innerHTML = renderFeeNudge(nextFeeStep(subtotal), split.ladder, hasCustom)
+    + (split.distance ? `<div class="fee-note">Includes ₹${split.distance} for the distance (${escapeAttr(area.cov.areaName)}, ${area.km.toFixed(1)} km).</div>` : "")
+    + areaBlockNote(area);
   document.getElementById("checkoutTotal").textContent = "₹" + (subtotal + fee) + customSuffix;
 
   renderAddressList();
+}
+
+/* Where this order is going, the same way the server decides: the picked
+   (or default) saved address, else the location from sign-up. The distance
+   charge and the "we don't deliver there" block both follow it. */
+function destinationArea() {
+  const dest = addressBook.length ? resolveSelectedAddress(addressBook) : getSavedLocation();
+  const cov = dest ? coverageFor(dest.lat, dest.lng) : null;
+  return { cov, km: cov && cov.served ? cov.distanceKm : 0 };
+}
+
+function areaBlockNote(area) {
+  const btn = document.getElementById("placeOrderBtn");
+  const outside = area.cov && !area.cov.served;
+  if (outside) {
+    btn.disabled = true;
+    btn.dataset.areaBlocked = "1";
+    btn.textContent = "We don't deliver to this address yet";
+    return `<div class="fee-note">We deliver in Brahmapuri, Wadsa and along the road between them. Pick or add an address inside that area.</div>`;
+  }
+  if (btn.dataset.areaBlocked) {
+    delete btn.dataset.areaBlocked;
+    btn.disabled = false;
+    btn.textContent = "Place order at warp speed 🚀";
+  }
+  return "";
 }
 
 /* ---- Saved addresses ----------------------------------------------------
@@ -465,7 +501,8 @@ async function loadAddresses() {
   const user = getWarpxUser();
   if (!user || !user.id) return;
   addressBook = await fetchAddresses(user.id);
-  renderAddressList();
+  // The fee depends on which address the order goes to, so redraw it all.
+  renderCheckout();
 }
 
 function renderAddressList() {
@@ -481,7 +518,7 @@ function renderAddressList() {
            <div class="addr-body">
              <div class="addr-title"><span class="addr-icon">📍</span><b>Current location</b></div>
              <p class="addr-line" translate="no">${escapeAttr(loc.address) || "No landmark added"}</p>
-             <p class="addr-meta">⚡ ${loc.zone === "core" ? "Prime warp zone" : "Extended zone"} · ${escapeAttr(loc.etaMin)} min</p>
+             <p class="addr-meta">⚡ ${escapeAttr(areaLabel(loc.lat, loc.lng))}</p>
            </div>
          </div>
          <p class="hint" style="margin-top:2px;">This order will go here. Tap <b>+ Add address</b> to save it as Home, Shop or anywhere else — then you can switch between them in one tap.</p>`
@@ -497,7 +534,7 @@ function renderAddressList() {
 
 function pickAddress(id) {
   setSelectedAddressId(id);
-  renderAddressList();
+  renderCheckout();
 }
 
 async function makeAddressDefault(id) {
@@ -565,9 +602,7 @@ function useGpsInline(btn) {
   requestPreciseLocation(
     (loc) => {
       pendingInlineLoc = loc;
-      const z = classifyZone(loc.lat, loc.lng);
-      const zoneLabel = z.zone === "core" ? "Prime warp zone" : "Extended zone";
-      status.innerHTML = `<div class="badge badge-success" style="margin-bottom:8px;">Location captured · accuracy ~${loc.accuracy}m — ${zoneLabel}, ~${z.etaMin} min</div>`;
+      status.innerHTML = `<div class="badge badge-success" style="margin-bottom:8px;">Location captured · accuracy ~${loc.accuracy}m · ${escapeAttr(areaLabel(loc.lat, loc.lng))}</div>`;
       btn.disabled = false;
     },
     (msg) => {

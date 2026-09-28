@@ -140,7 +140,12 @@ function renderCartDrawer() {
 
   const subtotal = cartSubtotal();
   const hasCustom = cart.some((c) => c.price == null);
-  const fee = feeFor(subtotal);
+  // A preview for the location saved at sign-up; checkout redoes it for the
+  // address actually picked, and the server has the final word.
+  const saved = getSavedLocation();
+  const cov = saved ? coverageFor(saved.lat, saved.lng) : null;
+  const split = deliveryFeeFor(subtotal, cov && cov.served ? cov.distanceKm : 0);
+  const fee = split.total;
   const step = nextFeeStep(subtotal);
   foot.innerHTML = `
     <div class="row-between" style="margin-bottom:8px;">
@@ -148,10 +153,11 @@ function renderCartDrawer() {
       <span>${subtotal > 0 ? "₹" + subtotal : "—"}${hasCustom ? " + custom items" : ""}</span>
     </div>
     <div class="row-between" style="margin-bottom:8px;">
-      <span class="text-muted">Delivery fee <small>(by order size)</small></span>
+      <span class="text-muted">Delivery fee <small>(by order size and distance)</small></span>
       <span>₹${fee}</span>
     </div>
-    ${renderFeeNudge(step, fee, hasCustom)}
+    ${renderFeeNudge(step, split.ladder, hasCustom)}
+    ${split.distance ? `<div class="fee-note">Includes ₹${split.distance} for the distance to ${escapeHtml(cov.areaName)}.</div>` : ""}
     <div class="row-between" style="font-weight:700;font-size:1.05rem;margin-bottom:16px;">
       <span>Total</span>
       <span>${subtotal > 0 ? "₹" + (subtotal + fee) : "₹" + fee + " + custom items"}</span>

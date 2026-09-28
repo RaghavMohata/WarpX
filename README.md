@@ -362,7 +362,9 @@ BASE_PAY_PER_DELIVERY = ₹15     flat, every delivery, whatever the tier
 tier percentage                  share of the delivery fees collected today
 ```
 
-So a day's pay is `(deliveries × ₹15) + (tier% × the day's delivery fees)`.
+So a day's pay is `(deliveries × ₹15) + (tier% × the day's delivery fees, without distance charges) + (75% × the day's distance charges)`.
+
+**Long trips.** An order beyond 3 km carries a distance charge (see "Delivery model"), and the rider who delivers it keeps **75%** of it (`RIDER_DISTANCE_SHARE` in `lib/fee.js`); WarpX keeps 25%. The tier bonus isn't paid on that part too, so no rupee is paid out twice. A Wadsa job with a ₹32 distance charge pays the rider ₹24 on top. The Driver Hub shows "+₹24 for you" on the job card before accepting, and a "Long-trip pay" line in the day's pay.
 
 **The tier reached by the end of the day pays for the whole day** — not just the deliveries made after the promotion. That single rule is what makes the bar worth watching: the delivery that triggers a promotion retroactively lifts every job already done that day, so it can be worth several times a normal one. The Driver Hub quotes this live ("Your next delivery is worth about ₹43.50 — it lifts today's whole rate to 25%"), and `payIfOneMore()` is what computes it.
 
@@ -421,8 +423,19 @@ The owner's dashboard now also shows which driver is carrying each order, or "no
   The cart and checkout both show a nudge — *"Add ₹140 more and delivery drops to ₹20 · save ₹10"* — because the whole point of a slab ladder is to make the next slab feel worth reaching. Once you're on the cheapest rate it turns into a confirmation instead.
 
   **Unpriced custom items don't count toward the slab.** A "get me a phone charger" request has no price until you price it, so it contributes ₹0 to the subtotal and the order lands in the ₹40 band. The cart says so in plain words rather than quietly quoting a number that later changes.
-- Service area quoted as **15–21.92 km²**. Treated as a circle (`area = πr²`), that's a delivery radius of **~2.19 km (core zone)** to **~2.64 km (extended zone)** from the dark store — used by the login page's zone check (`js/location.js`).
-- `DARK_STORE` coordinates in `js/location.js` are a placeholder — replace with your real store location before going live.
+- **Where we deliver** (`lib/zone.js`, shared by the server and every page, like `lib/fee.js`):
+
+  | Area | What counts | Example distance | Distance charge | ETA |
+  | --- | --- | --- | --- | --- |
+  | Brahmapuri | within 3 km of the town centre | 0–3 km | ₹0 | 15–25 min |
+  | The road | within 1.5 km of the Brahmapuri–Wadsa road (NH543) | ~6.5 km midway | ₹16 | 25–40 min |
+  | Wadsa (Desaiganj) | within 2.5 km of Wadsa's centre | ~11 km | ₹32 | 35–50 min |
+
+  Anywhere else is refused: `POST /api/orders` and `POST /api/weekly/plans` answer 400 `outOfArea: true`, and checkout disables **Place order** with "We don't deliver to this address yet". An order with no location at all is refused too (400 `needsLocation`).
+
+- **Distance charge** (`lib/fee.js`): the ladder above covers the first **3 km** from `HUB` (Brahmapuri centre, 20.6084, 79.8586); every started km past that adds **₹4**. So Wadsa's centre is ₹32 on top of the ladder: ₹52–₹72 in total. Weekly plans add it once per delivery day (a two-day Wadsa week is ₹99 + 2 × ₹32). Orders store it in `distance_fee`, as part of `delivery_fee`, and the area in `area`.
+- Distances are straight-line from `HUB`, not road km. The Wadsa road is nearly straight (12.5 km by road vs 10.9 in a line), so it lands close; see "Known limitations".
+- Saved addresses and location captures used to be measured from a placeholder store in Bhopal. The server re-measures every stored row from its lat/lng on start, and never trusts the stored `zone` for pricing.
 
 ## Solving the "precise location" problem
 
@@ -432,7 +445,7 @@ The brief asked for something like coordinate input for delivery targeting, but 
 2. **Visual confirmation, not text entry** — the captured point is shown as a pin on a lightweight mock map (no map-tile API/key needed) with the store location and the two delivery-radius rings drawn to scale. The user can drag the pin, or tap anywhere on the map, to nudge it — coordinates update silently underneath.
 3. **A no-GPS fallback** — "Pick my area instead" lists known local landmarks; picking one sets an approximate location without needing GPS permission at all.
 4. **A free-text landmark/address field** stays available throughout, purely as human-readable delivery instructions layered on top of the coordinate — it is never the thing used for the zone/distance calculation.
-5. **Immediate feedback** — as soon as a location is set (by any of the three methods), `classifyZone()` runs the Haversine distance from the dark store and shows the core-zone or extended-zone ETA. There's no "outside our service area" rejection — every location is served, just with a longer estimate the farther out it is.
+5. **Immediate feedback** — as soon as a location is set (by any of the three methods), `coverageFor()` (`lib/zone.js`) says which area it's in (Brahmapuri, the Wadsa road, Wadsa), the ETA and any distance charge, or "We don't deliver here yet". The mock map covers both towns (~17 × 10.6 km) and draws the two town circles and the road band to scale; the landmark list uses real places from OpenStreetMap.
 
 This keeps the precision (real coordinates, an accurate radius check) while keeping the interaction to "tap a button" or "tap a map" for the vast majority of users.
 
@@ -972,6 +985,8 @@ limitations, just below, matter far more once the site has a permanent public
 address — treat them as the next ones to close.
 
 ## Known limitations
+
+- **Distance is straight-line, not by road.** `lib/zone.js` measures from `HUB` as the crow flies. Fine for the Wadsa road, which is nearly straight; a routing API would be needed if the area grows to places with twisty roads or a river crossing far from the straight line.
 
 Things that are genuinely not solved yet, written down so they don't get rediscovered as surprises.
 

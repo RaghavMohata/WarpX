@@ -144,7 +144,7 @@
         <div id="gpsStatus"></div>
 
         <div class="map-mock" id="mapMock">
-          <div class="map-store" id="mapStore" title="WarpX dark store"></div>
+          <div class="map-store" id="mapStore" title="Brahmapuri centre"></div>
           <div id="zoneRings"></div>
           <div class="map-pin" id="mapPin" style="display:none;">📍</div>
           <div class="map-hint">Tap the map, or drag the pin, to fine-tune your spot</div>
@@ -204,8 +204,8 @@
       </div>
       <div>
         <h4>Delivery</h4>
-        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Delivery ₹20–₹40, by order size</span>
-        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Service area 15–21.92 km²</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Delivery from ₹20, +₹4/km beyond 3 km</span>
+        <span style="display:block;padding:5px 0;font-size:.9rem;color:rgba(255,255,255,.65);">Brahmapuri, Wadsa &amp; the road between</span>
       </div>
     </div>
     <div class="footer-bottom">
@@ -218,6 +218,7 @@
 <script src="lib/schedule.js"></script>
 <script src="js/google-auth.js"></script>
 <script src="js/cart.js"></script>
+<script src="lib/zone.js"></script>
 <script src="js/location.js"></script>
 <script src="js/main.js"></script>
 <script>
@@ -297,12 +298,11 @@ function togglePasswordVisibility(inputId, btn) {
 let currentLoc = null; // {lat, lng, accuracy, method}
 
 function renderZoneRings() {
-  const coreDia = (ZONE_CORE_KM / MAP_HALF_SPAN_KM) * 100;
-  const extDia = (ZONE_EXT_KM / MAP_HALF_SPAN_KM) * 100;
-  document.getElementById("zoneRings").innerHTML = `
-    <div class="map-zone" style="left:50%;top:50%;width:${extDia}%;height:${extDia}%;"></div>
-    <div class="map-zone" style="left:50%;top:50%;width:${coreDia}%;height:${coreDia}%;border-style:solid;border-color:rgba(109,40,217,.5);"></div>
-  `;
+  document.getElementById("zoneRings").innerHTML = areaMapSvg();
+  const hub = latlngToPct(HUB.lat, HUB.lng);
+  const store = document.getElementById("mapStore");
+  store.style.left = hub.xPct + "%";
+  store.style.top = hub.yPct + "%";
 }
 renderZoneRings();
 
@@ -325,9 +325,13 @@ function setLocation(loc) {
 function renderZoneResult() {
   const el = document.getElementById("zoneResult");
   if (!currentLoc) { el.innerHTML = ""; return; }
-  const z = classifyZone(currentLoc.lat, currentLoc.lng);
-  const label = z.zone === "core" ? "Prime warp zone" : "Extended zone";
-  el.innerHTML = `<div class="zone-result in"><span class="zi">⚡</span><div><b>${label} — you're covered!</b><p class="mb-0">~${z.distanceKm.toFixed(1)} km from our store. Estimated delivery: <b>${z.etaMin} min</b>.</p></div></div>`;
+  const c = coverageFor(currentLoc.lat, currentLoc.lng);
+  if (!c.served) {
+    el.innerHTML = `<div class="zone-result"><span class="zi">📍</span><div><b>We don't deliver here yet</b><p class="mb-0">We cover Brahmapuri, Wadsa and the road between them. Move the pin if it's in the wrong place.</p></div></div>`;
+    return;
+  }
+  const extra = distanceFeeFor(c.distanceKm);
+  el.innerHTML = `<div class="zone-result in"><span class="zi">⚡</span><div><b>${c.areaName}: we deliver here!</b><p class="mb-0">About ${c.distanceKm.toFixed(1)} km from Brahmapuri centre. Delivery in about <b>${c.etaMin} min</b>${extra ? `, and <b>+₹${extra}</b> on the delivery fee for the distance` : ""}.</p></div></div>`;
 }
 
 function useGps() {
@@ -352,10 +356,9 @@ function toggleLandmarks() {
     panel.dataset.built = "1";
     const list = document.getElementById("landmarkList");
     list.innerHTML = LANDMARKS.map((lm, i) => {
-      const pos = offsetFromStore(lm.dxKm, lm.dyKm);
-      const dist = haversineKm(pos.lat, pos.lng, DARK_STORE.lat, DARK_STORE.lng).toFixed(1);
+      const dist = haversineKm(lm.lat, lm.lng, HUB.lat, HUB.lng).toFixed(1);
       return `<div class="landmark-item" data-i="${i}" onclick="pickLandmark(${i})">
-        <span>${lm.name}<small>${lm.area} · ~${dist} km from store</small></span>
+        <span translate="no">${lm.name}<small>${lm.area} · ~${dist} km from Brahmapuri centre</small></span>
         <span>›</span>
       </div>`;
     }).join("");
@@ -364,7 +367,7 @@ function toggleLandmarks() {
 
 function pickLandmark(i) {
   const lm = LANDMARKS[i];
-  const pos = offsetFromStore(lm.dxKm, lm.dyKm);
+  const pos = { lat: lm.lat, lng: lm.lng };
   document.querySelectorAll(".landmark-item").forEach((el) => el.classList.remove("active"));
   document.querySelector(`.landmark-item[data-i="${i}"]`).classList.add("active");
   document.getElementById("gpsStatus").innerHTML = `<div class="badge badge-success" style="margin-bottom:12px;">Area selected: ${lm.name}</div>`;
@@ -453,7 +456,7 @@ async function completeLogin(btn) {
       // No server running (e.g. opened as a plain file) — fall back to a
       // browser-only session so the demo still works without the backend.
       localStorage.setItem("warpx_user", JSON.stringify({ name, phone }));
-      showToast(`Saved locally (couldn't reach the server) — you're in our ${saved.zone} zone.`);
+      showToast(`Saved locally (couldn't reach the server). ${areaLabel(saved.lat, saved.lng)}.`);
       setTimeout(() => { window.location.href = getRedirectTarget(); }, 1400);
       return;
     }
@@ -473,7 +476,7 @@ async function completeLogin(btn) {
     });
 
     localStorage.setItem("warpx_user", JSON.stringify({ id: data.id, name: data.name, phone: data.phone, email: data.email }));
-    showToast(`Welcome${data.name ? ", " + data.name : ""}! You're in our ${saved.zone} zone (~${saved.etaMin} min delivery).`);
+    showToast(`Welcome${data.name ? ", " + data.name : ""}! ${areaLabel(saved.lat, saved.lng)}.`);
     setTimeout(() => { window.location.href = getRedirectTarget(); }, 1200);
   } finally {
     btn.disabled = false;

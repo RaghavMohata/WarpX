@@ -28,9 +28,9 @@ function escAddr(str) {
   return d.innerHTML;
 }
 
+// Worked out from the coordinates, like the server does, not the stored zone.
 function addressZoneLine(a) {
-  const zoneLabel = a.zone === "core" ? "Prime warp zone" : "Extended zone";
-  return `⚡ ${zoneLabel} · ${escAddr(a.eta_min)} min`;
+  return `⚡ ${escAddr(areaLabel(a.lat, a.lng))}`;
 }
 
 /* ---- API ---------------------------------------------------------------- */

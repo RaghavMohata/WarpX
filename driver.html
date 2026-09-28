@@ -242,6 +242,7 @@
       <div class="pay-split">
         <div><span class="pay-k">Base pay</span><span class="pay-v" id="payBase">₹0</span><small id="payBaseNote"></small></div>
         <div><span class="pay-k">Tier bonus</span><span class="pay-v" id="payBonus">₹0</span><small id="payBonusNote"></small></div>
+        <div id="payDistanceBox" style="display:none;"><span class="pay-k">Long-trip pay</span><span class="pay-v" id="payDistance">₹0</span><small>for trips outside Brahmapuri</small></div>
       </div>
       <div class="pay-nudge" id="payNudge"></div>
 
@@ -251,6 +252,7 @@
         <ol class="pay-steps">
           <li><b>Base pay.</b> Every completed delivery pays a flat <b id="helpBase">₹15</b>, whatever tier you're on. This never goes down.</li>
           <li><b>Tier bonus.</b> On top of that you earn a percentage of the delivery fees you collected today. That percentage is the big number on the bar above.</li>
+          <li><b>Long trips pay extra.</b> Orders going beyond 3 km from Brahmapuri centre (the Wadsa road, Wadsa) carry a distance charge, and you keep <b>75%</b> of it. The job card shows how much before you accept.</li>
           <li><b>More deliveries, higher percentage.</b> The bar climbs as you complete jobs — 5% to start, up to 45% once you've done 25 in a day.</li>
           <li><b>The tier you finish on pays for the whole day.</b> Reach a new tier and it applies to <i>every</i> delivery you already made today, not just the ones after it. That's why one more job can be worth far more than the job itself.</li>
           <li><b>It resets each night.</b> At midnight the count returns to zero and you start again at 5% — so the ladder is a daily target, not a rank you keep.</li>
@@ -278,6 +280,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="lib/fee.js"></script>
 <script src="lib/schedule.js"></script>
 <script src="lib/weekly.js"></script>
 <script src="js/google-auth.js"></script>
@@ -481,6 +484,8 @@ function renderPay(d) {
   document.getElementById("payBaseNote").textContent = `₹${pay.basePerDelivery} × ${p.completed}`;
   document.getElementById("payBonus").textContent = "₹" + pay.bonus.toFixed(2).replace(/\.00$/, "");
   document.getElementById("payBonusNote").textContent = `${p.percent}% of today's delivery fees`;
+  document.getElementById("payDistanceBox").style.display = pay.distancePay ? "" : "none";
+  document.getElementById("payDistance").textContent = "₹" + (pay.distancePay || 0).toFixed(2).replace(/\.00$/, "");
 
   document.getElementById("payNudge").innerHTML = p.atMax
     ? `<span class="fee-nudge fee-nudge-win" style="display:block;">Top tier — every delivery today pays ${p.percent}% on top of base 🎉</span>`
@@ -534,6 +539,10 @@ function orderCard(o, action) {
   // makes Google Maps use wherever the driver is standing right now), then
   // on to the customer.
   const isPickup = !!o.pickupAddress;
+  // Far jobs say so up front, with the rider's share of the distance charge.
+  const longTrip = o.distance_fee > 0
+    ? `<div style="font-size:.85rem;margin:4px 0;">🛣️ <b translate="no">${o.area === "wadsa" ? "Wadsa" : "Wadsa road"}</b> · long trip · <b>+₹${(o.distance_fee * RIDER_DISTANCE_SHARE).toFixed(2).replace(/\.00$/, "")}</b> for you</div>`
+    : "";
   const maps = o.lat != null && o.lng != null
     ? `<a class="btn btn-outline btn-sm" href="https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}${isPickup ? `&waypoints=${encodeURIComponent(o.pickupAddress)}` : ""}" target="_blank" rel="noopener">📍 Navigate${isPickup ? " (via pickup)" : ""}</a>`
     : "";
@@ -552,6 +561,7 @@ function orderCard(o, action) {
         </div>
       </div>
       <div class="job-items" translate="no">${items}</div>
+      ${longTrip}
       ${isPickup ? `<div class="text-muted" style="font-size:.82rem;">🏪 <b>Pickup:</b> ${esc(o.pickupAddress)}</div>` : ""}
       <div class="text-muted" style="font-size:.82rem;">${o.scheduled_for ? `<span class="sched-tag">🗓️ ${esc(formatSchedule(o.scheduled_for))}</span> · ` : ""}${o.address_label ? "<b translate=\"no\">" + esc(o.address_label) + "</b> · " : ""}${isPickup ? "🚪 <b>Drop-off:</b> " : ""}<span translate="no">${esc(o.address) || ""}</span>${o.address ? "" : "No landmark note given"}</div>
       <div class="job-actions">${maps}${action}</div>

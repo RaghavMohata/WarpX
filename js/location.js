@@ -1,71 +1,70 @@
-/* WarpX location + delivery-zone logic.
-   Demo dark-store coordinates — swap for your real store location. */
-const DARK_STORE = { lat: 23.2599, lng: 77.4126, name: "WarpX Dark Store — MG Road" };
+/* WarpX location capture: GPS, the pin-drop map and the landmark list.
+   Where we deliver (and how far a spot is) lives in lib/zone.js, which every
+   page loads just before this file; the server runs the same file. */
 
-/* Service area is quoted as "15 km² to 21.92 km²". Treating that as a circle
-   (area = πr²) gives radius ≈ 2.19 km (core) to ≈ 2.64 km (outer edge). */
-const ZONE_CORE_KM = 2.19;
-const ZONE_EXT_KM = 2.64;
-const MAP_HALF_SPAN_KM = 3.3; // mock-map view window, a bit wider than the service zone
+/* The mock map shows both towns: ~17 × 10.6 km (the map box is 16:10),
+   centred between Brahmapuri and Wadsa. */
+const MAP_CENTER = { lat: 20.6161, lng: 79.9106 };
+const MAP_HALF_X_KM = 8.5;
+const MAP_HALF_Y_KM = MAP_HALF_X_KM * 10 / 16;
 
 const LOCATION_KEY = "warpx_location";
 
+// Real places, from OpenStreetMap, for picking a spot without GPS.
 const LANDMARKS = [
-  { name: "Main Bus Stand", area: "Old Town", dxKm: -1.1, dyKm: 0.6 },
-  { name: "Railway Station Road", area: "Station Side", dxKm: 1.4, dyKm: -0.4 },
-  { name: "Old Market Chowk", area: "Central Bazaar", dxKm: 0.2, dyKm: 0.3 },
-  { name: "Civil Hospital Area", area: "Sector 4", dxKm: -0.6, dyKm: -1.3 },
-  { name: "Green Valley College Road", area: "North End", dxKm: 0.8, dyKm: 1.8 },
-  { name: "New Colony", area: "East End", dxKm: 2.1, dyKm: 0.9 },
-  { name: "Industrial Estate Gate", area: "South End", dxKm: -0.3, dyKm: -2.2 },
-  { name: "Lakeview Road", area: "West End", dxKm: -2.0, dyKm: 0.2 },
+  { name: "Brahmapuri town centre", area: "Brahmapuri", lat: 20.6084, lng: 79.8586 },
+  { name: "MSRTC Bus Stand", area: "Brahmapuri", lat: 20.6153, lng: 79.8552 },
+  { name: "Brahmapuri Railway Station", area: "Brahmapuri", lat: 20.6040, lng: 79.8683 },
+  { name: "Kurza", area: "Brahmapuri", lat: 20.6282, lng: 79.8624 },
+  { name: "Midway on the Wadsa road", area: "NH543", lat: 20.6180, lng: 79.9200 },
+  { name: "Wadsa town centre", area: "Wadsa (Desaiganj)", lat: 20.6238, lng: 79.9626 },
+  { name: "Wadsa station area", area: "Wadsa (Desaiganj)", lat: 20.6240, lng: 79.9631 },
 ];
 
-function kmToLatDeg(km) {
-  return km / 111;
-}
-function kmToLngDeg(km, atLat) {
-  return km / (111 * Math.cos((atLat * Math.PI) / 180));
-}
-
-function offsetFromStore(dxKm, dyKm) {
-  // dx = east(+)/west(-), dy = north(+)/south(-)
+function kmFromCenter(lat, lng) {
   return {
-    lat: DARK_STORE.lat + kmToLatDeg(dyKm),
-    lng: DARK_STORE.lng + kmToLngDeg(dxKm, DARK_STORE.lat),
+    x: (lng - MAP_CENTER.lng) * 111 * Math.cos((MAP_CENTER.lat * Math.PI) / 180),
+    y: (lat - MAP_CENTER.lat) * 111,
   };
-}
-
-function haversineKm(lat1, lng1, lat2, lng2) {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
 }
 
 /* Convert a lat/lng into 0-100% coordinates on the mock map, and back. */
 function latlngToPct(lat, lng) {
-  const dxKm = (lng - DARK_STORE.lng) * 111 * Math.cos((DARK_STORE.lat * Math.PI) / 180);
-  const dyKm = (lat - DARK_STORE.lat) * 111;
-  return {
-    xPct: 50 + (dxKm / MAP_HALF_SPAN_KM) * 50,
-    yPct: 50 - (dyKm / MAP_HALF_SPAN_KM) * 50,
-  };
+  const { x, y } = kmFromCenter(lat, lng);
+  return { xPct: 50 + (x / MAP_HALF_X_KM) * 50, yPct: 50 - (y / MAP_HALF_Y_KM) * 50 };
 }
 function pctToLatLng(xPct, yPct) {
-  const dxKm = ((xPct - 50) / 50) * MAP_HALF_SPAN_KM;
-  const dyKm = -((yPct - 50) / 50) * MAP_HALF_SPAN_KM;
-  const o = offsetFromStore(dxKm, dyKm);
-  return o;
+  const x = ((xPct - 50) / 50) * MAP_HALF_X_KM;
+  const y = -((yPct - 50) / 50) * MAP_HALF_Y_KM;
+  return {
+    lat: MAP_CENTER.lat + y / 111,
+    lng: MAP_CENTER.lng + x / (111 * Math.cos((MAP_CENTER.lat * Math.PI) / 180)),
+  };
 }
 
-function classifyZone(lat, lng) {
-  const distanceKm = haversineKm(lat, lng, DARK_STORE.lat, DARK_STORE.lng);
-  if (distanceKm <= ZONE_CORE_KM) return { distanceKm, zone: "core", etaMin: "10-15" };
-  return { distanceKm, zone: "extended", etaMin: "15-25" };
+/* The delivery area drawn to scale in km: both town circles and the road
+   band. The SVG's own units are km, so shapes stay true to the ground. */
+function areaMapSvg() {
+  const pt = (lat, lng) => { const k = kmFromCenter(lat, lng); return [k.x.toFixed(2), (-k.y).toFixed(2)]; };
+  const road = ROAD.map(([la, ln]) => pt(la, ln).join(",")).join(" ");
+  const towns = AREAS.map((a) => {
+    const [cx, cy] = pt(a.lat, a.lng);
+    return `<circle cx="${cx}" cy="${cy}" r="${a.radiusKm}" fill="rgba(124,58,237,.18)" stroke="rgba(167,139,250,.7)" stroke-width=".08"/>
+      <text x="${cx}" y="${(cy - a.radiusKm - 0.3).toFixed(2)}" text-anchor="middle" font-size=".75" fill="currentColor">${a.name}</text>`;
+  }).join("");
+  return `<svg viewBox="${-MAP_HALF_X_KM} ${-MAP_HALF_Y_KM} ${MAP_HALF_X_KM * 2} ${MAP_HALF_Y_KM * 2}" preserveAspectRatio="none" style="opacity:1;pointer-events:none;color:var(--ink-soft);">
+    <polyline points="${road}" fill="none" stroke="rgba(124,58,237,.14)" stroke-width="${ROAD_WIDTH_KM * 2}" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="${road}" fill="none" stroke="rgba(167,139,250,.6)" stroke-width=".08" stroke-dasharray=".3 .2"/>
+    ${towns}
+  </svg>`;
+}
+
+/* A short label for where a spot falls: "Wadsa · 35-50 min · +₹32 delivery". */
+function areaLabel(lat, lng) {
+  const c = coverageFor(lat, lng);
+  if (!c.served) return "Outside our delivery area";
+  const extra = distanceFeeFor(c.distanceKm);
+  return `${c.areaName} · ${c.etaMin} min${extra ? ` · +₹${extra} delivery` : ""}`;
 }
 
 function saveLocation(loc) {

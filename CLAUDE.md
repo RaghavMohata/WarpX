@@ -53,16 +53,16 @@ carries items, quantities and notes only: no price, no total, no customer.
 be `express.static(__dirname)`, which served `warpx.db` to anyone. Never put
 that back. A new browser-side folder or `lib/` file must be added to the list.
 
-**Four modules run in both Node and the browser** — `lib/fee.js`,
-`lib/schedule.js`, `lib/weekly.js` and `js/menu-data.js`. They are `require`d
+**Five modules run in both Node and the browser** — `lib/fee.js`,
+`lib/zone.js`, `lib/schedule.js`, `lib/weekly.js` and `js/menu-data.js`. They are `require`d
 by `server.js` *and* served as `<script src>`. So: no `import`/`export`, no
 Node-only APIs, and keep the `if (typeof module !== "undefined")` export
-footer at the bottom. The other `lib/*.js` (`zone`, `tier`, `route`, `auth`,
+footer at the bottom. The other `lib/*.js` (`tier`, `route`, `auth`,
 `google`, `session`, `secrets`, `ratelimit`, `cafe`) are server-only and
 unconstrained.
 
 **Bump `VERSION` in `sw.js` whenever shared CSS or JS changes shape.**
-Currently `warpx-v13`. Pages are network-first, but assets are cache-first —
+Currently `warpx-v14`. Pages are network-first, but assets are cache-first —
 without a bump, a returning visitor runs one page-load of yesterday's
 JavaScript against today's API.
 
@@ -108,6 +108,16 @@ updating that page in the same change.
 **The delivery code never appears on the driver's page.** `driver.html`
 contains no `delivery_code` reference, and should stay that way — the code is
 the customer's proof of handover.
+
+**The delivery area and distance charge live in two files.** `lib/zone.js`
+says where WarpX delivers (Brahmapuri, Wadsa, and a 1.5 km band along the
+road between) and how far a spot is from `HUB`; `lib/fee.js` turns that into
+money (`FREE_KM`, `PER_KM`, `RIDER_DISTANCE_SHARE`). Orders store the
+distance part in `orders.distance_fee`, inside `delivery_fee`: rider pay
+(`lib/tier.js`) pays the tier bonus on the ladder part only and 75% of the
+distance part. Coverage is always worked out from lat/lng at order time,
+never from the stored `zone` column. An address outside the area is refused
+with `outOfArea: true`.
 
 ## Working on it
 

@@ -16,7 +16,7 @@
    visitor runs one page-load of yesterday's JavaScript against today's API.
    The activate handler below deletes every cache that isn't the current one,
    so changing this line is the whole mechanism. */
-const VERSION = "warpx-v13";
+const VERSION = "warpx-v14";
 const SHELL_CACHE = `${VERSION}-shell`;
 
 const PRECACHE = [
@@ -26,7 +26,7 @@ const PRECACHE = [
   "/css/style.css",
   "/js/cart.js", "/js/location.js", "/js/main.js", "/js/menu-data.js", "/js/translate.js",
   "/js/addresses.js", "/js/pwa.js",
-  "/lib/fee.js", "/lib/schedule.js", "/lib/weekly.js",
+  "/lib/fee.js", "/lib/schedule.js", "/lib/weekly.js", "/lib/zone.js",
   "/img/icon-192.png", "/img/icon-512.png", "/img/apple-touch-icon.png",
   "/manifest.webmanifest",
 ];

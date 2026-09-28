@@ -686,12 +686,13 @@ function renderOrders(orders) {
             </div>`).join("")}
         </div>
         <div class="row-between" style="font-weight:700;font-size:.95rem;">
-          <span>Total (₹${o.delivery_fee} delivery incl.)</span>
+          <span>Total (₹${o.delivery_fee} delivery incl.${o.distance_fee > 0 ? `, ₹${o.distance_fee} of it distance` : ""})</span>
           <span>₹${o.total}</span>
         </div>
         <div class="text-muted" style="font-size:.8rem;margin-top:4px;">
           ${o.payment_method === "upi" ? "📱 UPI" + (o.upi_id ? " (" + esc(o.upi_id) + ")" : "") : "💵 Cash on Delivery"}
           · ${o.driver_name ? "🚴 " + esc(o.driver_name) : "🚴 no driver yet"}
+          ${o.area && o.area !== "brahmapuri" ? ` · 🛣️ ${o.area === "wadsa" ? "Wadsa" : "Wadsa road"}` : ""}
         </div>
         <div class="row-between" style="margin-top:8px;flex-wrap:wrap;gap:8px;align-items:center;">
           ${o.lat != null && o.lng != null ? `

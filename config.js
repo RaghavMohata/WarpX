@@ -50,4 +50,10 @@ module.exports = {
      other services have no single fixed pickup point yet. Never sent to any
      customer-facing page. */
   PICASSO_ADDRESS: "Beside Gold Cinema, Churhe Bada, Brahmapuri, Maharashtra",
+
+  /* The address the public reaches the site at, with no trailing slash. Used
+     to build links that leave the site — the cafe's "I'm preparing it"
+     button in its order email. Leave it empty and the email still goes out,
+     just without the button. The PUBLIC_URL environment variable wins. */
+  PUBLIC_URL: "https://warpx.online",
 };

@@ -38,6 +38,15 @@ route touching an order, address or person runs `requireUser`,
 path is at most checked against the session with `claims()`, and a mismatch is
 a 401. A new endpoint without one of the guards is a data leak. Owner routes
 also accept `Authorization: Bearer <N8N_API_KEY>`, which is how n8n calls in.
+The one deliberate exception is the cafe's link: `requireCafeKey` checks a
+per-order HMAC key (`lib/cafe.js`) that can only move that one order from
+`placed` to `preparing`. Keep it that narrow. Opening the link (a GET) must
+never change anything, because mail scanners open links on their own.
+
+**The cafe never sees WarpX's prices.** Menu prices include WarpX's ₹15/item
+margin over Picasso's own. Anything sent to or shown to the cafe (the `cafe`
+block in the new-order webhook, `cafe.html`, `GET /api/cafe/orders/:id`)
+carries items, quantities and notes only: no price, no total, no customer.
 
 **The web server hands out an allowlist, not the folder.** Root `.html` pages,
 `sw.js`, the manifest, `css/`, `js/`, `img/`, and three `lib/` files. It used to
@@ -48,8 +57,9 @@ that back. A new browser-side folder or `lib/` file must be added to the list.
 `lib/schedule.js`, `lib/weekly.js` and `js/menu-data.js`. They are `require`d
 by `server.js` *and* served as `<script src>`. So: no `import`/`export`, no
 Node-only APIs, and keep the `if (typeof module !== "undefined")` export
-footer at the bottom. The other `lib/*.js` — `zone`, `tier`, `route`, `auth`,
-`google` — are server-only and unconstrained.
+footer at the bottom. The other `lib/*.js` (`zone`, `tier`, `route`, `auth`,
+`google`, `session`, `secrets`, `ratelimit`, `cafe`) are server-only and
+unconstrained.
 
 **Bump `VERSION` in `sw.js` whenever shared CSS or JS changes shape.**
 Currently `warpx-v11`. Pages are network-first, but assets are cache-first —
@@ -131,6 +141,7 @@ the customer's proof of handover.
 | The rider's screen | The Driver Hub (`driver.html`) |
 | Handover OTP | Delivery codes (handover OTP) |
 | Owner and driver notifications | n8n order automation |
+| The cafe's order email and "I'm preparing it" link | The cafe's order email, and its one-tap "I'm preparing it" |
 | Colours and tokens | The dark theme |
 | Marathi / Hindi | Languages |
 | Motion, scroll, page transitions | Animation |
@@ -151,4 +162,4 @@ server. Password, sign-up, driver sign-in and delivery-code attempts are
 rate-limited, and only the site's own files are served. What's still open is
 written up under "Known limitations" and doesn't need re-reporting: driver
 sign-in by phone alone, no phone/email verification, one shared owner
-password, and no limit on placing orders.
+password, no limit on placing orders, and one cafe for all food orders.

@@ -13,12 +13,13 @@ const { hashPassword, verifyPassword } = require("./lib/auth");
 const googleAuth = require("./lib/google");
 const { tierFor, payFor, payIfOneMore, BASE_PAY_PER_DELIVERY } = require("./lib/tier");
 const { feeFor, weeklyPlanFee } = require("./lib/fee");
-const { validateSchedule, parseSchedule, isDueForDispatch, isOpenNow, nextOpeningSlot,
+const { validateSchedule, parseSchedule, formatSchedule, isDueForDispatch, isOpenNow, nextOpeningSlot,
         SCHEDULE_OPEN_HOUR, SCHEDULE_CLOSE_HOUR } = require("./lib/schedule");
 const { isWindowOpen, DELIVERY_SLOTS, slotById, weekDates, dayLabelFor, scheduledForDay, addDays } = require("./lib/weekly");
 const { assignRoutes, routeDistanceKm } = require("./lib/route");
 const { PICASSO_MENU } = require("./js/menu-data");
 const config = require("./config");
+const cafe = require("./lib/cafe");
 
 const app = express();
 /* Believe X-Forwarded-For / -Proto only from a proxy on this same machine —
@@ -212,6 +213,31 @@ function notifyN8nCustomer({ userId, orderNumber, total, paymentMethod, etaMin, 
     customerEmail: customer.email,
     orderNumber, total, paymentMethod, etaMin, scheduledFor, deliveryOtp,
   });
+}
+
+/* ---- The cafe's order email ----------------------------------------------
+   Rides on the new-order webhook as `cafe` whenever an order includes food
+   (null otherwise): a ready-made subject, HTML and text for n8n's Send Email
+   node, plus the signed link behind the email's "I'm preparing it" button
+   (lib/cafe.js). Items, quantities and notes only. The payload's own `items`
+   and totals carry WarpX's prices, which include the ₹15 margin, and must
+   never be forwarded to the cafe. */
+const PUBLIC_URL = String(process.env.PUBLIC_URL !== undefined ? process.env.PUBLIC_URL : (config.PUBLIC_URL || "")).replace(/\/+$/, "");
+
+function cafeConfirmUrl(orderId) {
+  if (!PUBLIC_URL) return null;
+  return `${PUBLIC_URL}/cafe.html?order=${orderId}&key=${cafe.cafeKey(SECRETS.cafeLinkSecret, orderId)}`;
+}
+
+function cafeNotice({ orderId, orderNumber, items, scheduledFor }) {
+  const food = items
+    .filter((it) => it.service === "food")
+    .map((it) => ({ name: it.name, qty: it.qty || 1, note: it.note || null }));
+  if (!food.length) return null;
+  const confirmUrl = cafeConfirmUrl(orderId);
+  const when = scheduledFor ? formatSchedule(scheduledFor) : "As soon as possible";
+  const email = cafe.cafeEmail({ orderNumber, items: food, whenLabel: when, confirmUrl });
+  return { items: food, when, confirmUrl, emailSubject: email.subject, emailHtml: email.html, emailText: email.text };
 }
 
 /* ---- Pricing is the server's business, not the browser's ------------------
@@ -739,6 +765,7 @@ app.post("/api/orders", requireUser, (req, res) => {
     addressLabel: chosenAddress ? chosenAddress.label : null,
     etaMin,
     scheduledFor,
+    cafe: cafeNotice({ orderId, orderNumber, items: priced, scheduledFor }),
   });
   notifyN8nCustomer({ userId, orderNumber, total, paymentMethod: method, etaMin, scheduledFor, deliveryOtp });
 
@@ -1016,6 +1043,9 @@ app.post("/api/weekly/plans", requireUser, (req, res) => {
       addressLabel: chosenAddress ? chosenAddress.label : null,
       etaMin: loc ? loc.eta_min : "20-30",
       scheduledFor: order.scheduledFor,
+      // Always null — a weekly plan is vegetables — but kept so every
+      // new-order payload has the same shape.
+      cafe: cafeNotice({ orderId: order.orderId, orderNumber: order.orderNumber, items: order.priced, scheduledFor: order.scheduledFor }),
     });
   }
 
@@ -1266,6 +1296,59 @@ app.patch("/api/orders/:id/status", requireAdmin, (req, res) => {
   // the customer doesn't need to hear "your order is preparing" twice.
   if (existing.status !== status) notifyN8nStatus(existing, status);
   res.json({ id, status });
+});
+
+/* ---- The cafe's one-tap confirm -------------------------------------------
+   Behind cafe.html, the page the "I'm preparing it" button in the cafe's
+   email opens. No session: the per-order key in the link is the credential
+   (lib/cafe.js), and all it can ever do is move that one order from "placed"
+   to "preparing". Reading is a GET and changes nothing — mail apps and link
+   scanners open links by themselves, and previewing an email must never
+   confirm an order. The confirm is the POST behind the page's button. */
+function requireCafeKey(req, res, next) {
+  const id = Number(req.params.id);
+  const key = req.method === "GET" ? req.query.key : (req.body || {}).key;
+  // One answer for every failure, so a wrong key and a missing order look the same.
+  const invalid = () => res.status(404).json({ error: "This link isn't valid. Open the newest email for this order." });
+  if (!Number.isInteger(id) || id < 1 || !cafe.checkCafeKey(SECRETS.cafeLinkSecret, id, key)) return invalid();
+  const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+  const items = order ? db.prepare("SELECT name, qty, note FROM order_items WHERE order_id = ? AND service = 'food'").all(id) : [];
+  if (!order || !items.length) return invalid();
+  req.cafeOrder = order;
+  req.cafeItems = items;
+  next();
+}
+
+// What the counter needs and nothing more: what to make, for when, and the
+// number the rider will quote. No prices, no customer.
+function cafeView(order, items) {
+  return {
+    orderNumber: order.order_number,
+    status: order.status,
+    placedAt: order.created_at,
+    scheduledFor: order.scheduled_for,
+    items: items.map((it) => ({ name: it.name, qty: it.qty, note: it.note || null })),
+  };
+}
+
+app.get("/api/cafe/orders/:id", requireCafeKey, (req, res) => {
+  res.json(cafeView(req.cafeOrder, req.cafeItems));
+});
+
+app.post("/api/cafe/orders/:id/preparing", requireCafeKey, (req, res) => {
+  const order = req.cafeOrder;
+  // Forward only, and only from "placed": a link can't pull an order back off
+  // the road or undo what the owner or a driver already did.
+  const info = db.prepare("UPDATE orders SET status = 'preparing' WHERE id = ? AND status = 'placed'").run(order.id);
+  const now = db.prepare("SELECT * FROM orders WHERE id = ?").get(order.id);
+  if (info.changes) notifyN8nStatus(order, "preparing");
+  if (!info.changes && (now.status === "out for delivery" || now.status === "delivered")) {
+    return res.status(409).json({
+      error: now.status === "delivered" ? "This order has already been delivered." : "A rider has already picked this order up.",
+      ...cafeView(now, req.cafeItems),
+    });
+  }
+  res.json({ ...cafeView(now, req.cafeItems), changed: info.changes > 0 });
 });
 
 /* A driver marking an order collected. Claiming an order is not the same as

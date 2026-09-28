@@ -92,6 +92,8 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `GET /api/orders/available` | Orders no driver has claimed yet, newest first — the Driver Hub's job board |
 | `PATCH /api/orders/:id/claim` | A driver claims an unassigned order (rejects if someone else got there first) |
 | `PATCH /api/orders/:id/deliver` | A driver completes their own order — requires the customer's 4-digit delivery code, and is what advances the progress bar |
+| `GET /api/cafe/orders/:id?key=…` | What the cafe's confirm page shows: order number, when it's needed, food lines and notes. No prices, no customer. The per-order key from the cafe's email is the only credential |
+| `POST /api/cafe/orders/:id/preparing` | The cafe's "I'm preparing it" — `{ "key": "…" }`; moves that order from `placed` to `preparing` and nothing else |
 
 **Who can call what** is in "Accounts, sessions and the owner password" below: in short, a customer's routes need that customer's session, the Driver Hub's need an approved driver's, and everything the dashboard uses needs the owner's (or n8n's key).
 
@@ -224,16 +226,48 @@ None of these need guesswork to fix — they need real accounts, a real push/SMS
   "address": "23.268,77.415 area, Bhopal",
   "addressLabel": "Home",
   "etaMin": "20-30",
-  "scheduledFor": null
+  "scheduledFor": null,
+  "cafe": {
+    "items": [{ "name": "Bottle 10", "qty": 2, "note": null }],
+    "when": "As soon as possible",
+    "confirmUrl": "https://warpx.online/cafe.html?order=827&key=…",
+    "emailSubject": "🍽️ New WarpX order #WPX539848 — 2 items to prepare",
+    "emailHtml": "<!doctype html>…",
+    "emailText": "New WarpX order #WPX539848 — please prepare…"
+  }
 }
 ```
-`pickupAddress` is Picasso's own address, set by `pickupAddressFor()` in `server.js` (same helper `driver.html` uses) whenever the order includes a food item — `null` for grocery/medicine/laundry/anything, since those have no single fixed pickup point yet. It's meant for the delivery-partner message only; leave it out of whatever gets sent to the restaurant owner's own chat, since Picasso obviously doesn't need directions to itself.
+`cafe` is `null` unless the order has food in it — see "The cafe's order email" just below. `pickupAddress` is Picasso's own address, set by `pickupAddressFor()` in `server.js` (same helper `driver.html` uses) whenever the order includes a food item — `null` for grocery/medicine/laundry/anything, since those have no single fixed pickup point yet. It's meant for the delivery-partner message only; leave it out of whatever gets sent to the restaurant owner's own chat, since Picasso obviously doesn't need directions to itself.
 
 The customer's delivery OTP is deliberately never included — the same rule `withoutOtp()` enforces everywhere else in this codebase (see "Delivery codes" above) applies here too: it exists to prove a real handover happened, so it must never travel anywhere but the customer's own screen.
 
 **On reachability, tying back to the reverse-proxy section above:** this call is *outbound* — WarpX (or n8n) reaching out to Telegram/WhatsApp's own servers — so it works over a normal home connection with no port forwarding, and isn't affected by CGNAT the way accepting inbound connections is. The one place that matters is getting a *reply* from a partner: rather than a Telegram webhook (which would need a public HTTPS endpoint pointed at this Mac), have the n8n workflow poll Telegram's `getUpdates` on a Schedule-trigger node every few seconds instead. That keeps the entire loop outbound-only in both directions.
 
 **Not built here on purpose:** the actual n8n workflow (which nodes, which chat IDs, message wording) lives inside n8n itself, not in this repo — it's built and edited visually in n8n's own UI, the same way Caddy's domain is configuration rather than code. (n8n calling back into WarpX needs a key — see "n8n calling back into WarpX".)
+
+### The cafe's order email, and its one-tap "I'm preparing it"
+
+When an order includes food, Picasso gets an email with what to make, and a button to tell WarpX they've started. Tapping it moves the order to `preparing`: the owner's dashboard shows it within 5 seconds, and the customer gets the usual status ping (below). Picasso needs no account and no app.
+
+**WarpX writes the email.** The new-order payload carries a `cafe` block with a ready-made `emailSubject`, `emailHtml` and `emailText`, so n8n only has to send it. Nothing is designed or templated inside n8n.
+
+**Setting it up in n8n** (in the workflow that has the `new-order` Webhook node):
+1. After the Webhook node, add an **If** node. Condition: **Boolean**, value `{{ $json.body.cafe !== null }}`, **is true**.
+2. On its **true** output, add a **Send Email** node, using the Hostinger SMTP credential:
+   - **From:** your Hostinger address
+   - **To:** Picasso's email
+   - **Subject:** `{{ $json.body.cafe.emailSubject }}`
+   - **Email Format:** HTML (or Both, and put `{{ $json.body.cafe.emailText }}` in Text)
+   - **HTML:** `{{ $json.body.cafe.emailHtml }}`
+3. Save, and switch the workflow to **Active**.
+
+⚠️ **Send the cafe only the `cafe` fields.** The payload's own `items`, `subtotal` and `total` carry WarpX's prices, which include the ₹15-per-item margin over Picasso's price. The `cafe` block leaves out prices and the customer on purpose: Picasso needs what to make and the order number the rider will quote, not who ordered or where they live.
+
+**How the button works:** it opens `cafe.html?order=…&key=…`. The key is an HMAC of the order id, signed with `CAFE_LINK_SECRET` from `warpx-secrets.json` (added to an existing file on first start). So it's impossible to guess, works for that one order only, and can do exactly one thing: move it from `placed` to `preparing`. It can't touch any other order, undo anything, or pull an order back once a rider has it. Opening the link changes nothing by itself, because mail apps and link scanners open links on their own; the page's button does. Tapping twice is harmless.
+
+The link needs the site's public address: `PUBLIC_URL` in `config.js` (`https://warpx.online`). Leave it empty and the email still goes out, just without the button. Changing `CAFE_LINK_SECRET` breaks every link already sent, so only do it if one leaked.
+
+The same `confirmUrl` works anywhere, not just in email: a WhatsApp or Telegram message to the cafe can carry it too.
 
 ### Customer-side status pings
 
@@ -908,9 +942,10 @@ address — treat them as the next ones to close.
 Things that are genuinely not solved yet, written down so they don't get rediscovered as surprises.
 
 - **Cafe items are matched by name.** Server-side pricing keys off the item name in `js/menu-data.js`, so renaming an item there without updating anything else makes existing carts holding the old name resolve to unpriced rather than mispriced. Safe, but worth knowing before a menu rewrite.
-- **Driver sign-in by phone alone still identifies rather than authenticates.** Knowing an approved driver's number is enough to open their hub — the job board, with customers' addresses. Wrong numbers are rate-limited, but a *known* number isn't a secret. Google sign-in fixes this for drivers who link an account. Making Google mandatory for drivers, or giving them a password, would close it completely.
+- **Driver sign-in by phone alone still identifies rather than authenticates.** Knowing an approved driver's number is enough to open their hub — the job board, with customers' addresses. Wrong numbers are rate-limited, but a *known* number isn't a secret. Linking Google doesn't close it yet: the number alone still signs in a driver who has linked. Refusing phone-only sign-in for linked drivers (or giving drivers a password) would.
 - **Limits cover logins, not everything.** Password, sign-up, driver sign-in and delivery-code attempts are capped (see "Attempt limits"). Placing orders and the public driver application form aren't, so a signed-in customer could still spam orders.
 - **One owner password, no staff accounts** — see the dashboard section above.
+- **One cafe.** Every food order goes to the one address in n8n's Send Email node. A second restaurant would need items tagged with which kitchen makes them, and the `cafe` block split per kitchen.
 - **No phone or email verification at sign-up**, so a wrong or fake number means an order nobody can chase, and a mistyped email sends confirmations to a stranger.
 - **The PWA needs HTTPS off localhost.** Service workers only run on `https://` or `localhost` — over plain `http://` on a LAN IP or a bare port-forward the site still works, it just won't install or cache. See "HTTPS with a reverse proxy" above for the fix.
 - **`warpx.db` has no backup.** It's a single file; losing it loses every order, customer and driver. Back up `warpx-secrets.json` with it.

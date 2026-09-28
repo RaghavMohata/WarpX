@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#0B0A12">
+<title>Order to prepare | WarpX</title>
+<!-- Reached only through a per-order link in the cafe's email. -->
+<meta name="robots" content="noindex, nofollow">
+<!-- The key is in this page's address: never send it to another site in a Referer. -->
+<meta name="referrer" content="same-origin">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .cafe-wrap{ max-width:460px; margin:0 auto; padding:28px 16px 64px; }
+  .cafe-card{ padding:26px 22px; }
+  .cafe-kicker{ font-size:.8rem; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--violet-bright); margin:0 0 6px; }
+  .cafe-num{ font-size:1.9rem; margin:0 0 4px; }
+  .cafe-when{ font-size:1rem; color:var(--ink-soft); margin:0 0 18px; }
+  .cafe-when b{ color:var(--ink); }
+  .cafe-items{ list-style:none; margin:0 0 22px; padding:0; }
+  .cafe-items li{ padding:13px 0; border-top:1px solid var(--line); font-size:1.08rem; }
+  .cafe-items li:last-child{ border-bottom:1px solid var(--line); }
+  .cafe-qty{ font-weight:700; color:var(--ink); margin-right:4px; }
+  .cafe-note{ display:block; font-size:.9rem; color:var(--ink-soft); margin-top:4px; }
+  .cafe-btn{ font-size:1.1rem; padding:17px 24px; }
+  .cafe-done{ padding:16px; border-radius:var(--radius); background:var(--success-bg); color:var(--success); font-weight:600; margin:0; }
+  .cafe-done small{ display:block; font-weight:400; color:var(--ink-soft); margin-top:6px; font-size:.88rem; }
+  .cafe-info{ padding:16px; border-radius:var(--radius); background:var(--surface-2); color:var(--ink-soft); margin:0; }
+  .cafe-foot{ font-size:.85rem; color:var(--muted); margin:16px 0 0; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <span class="brand" translate="no"><span class="brand-mark">W</span>WarpX</span>
+    <div class="nav-actions"></div>
+  </div>
+</nav>
+
+<main class="cafe-wrap">
+  <div class="card cafe-card" id="cafeCard">
+    <p class="text-muted mb-0" id="cafeLoading">Loading the order…</p>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="lib/schedule.js"></script>
+<script>
+/* Picasso's side of a food order. The link in the cafe's email carries the
+   order id and a key signed by the server; this page shows what to make and
+   one button that marks the order as being prepared. Opening the page never
+   changes anything by itself — only the button does. */
+const params = new URLSearchParams(location.search);
+const ORDER_ID = params.get("order");
+const KEY = params.get("key");
+const card = document.getElementById("cafeCard");
+
+function esc(str) {
+  const d = document.createElement("div");
+  d.textContent = str == null ? "" : String(str);
+  return d.innerHTML;
+}
+
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+// created_at is stored as UTC ("2026-09-28 11:30:21"); show it on the counter's clock.
+// Same "7:05 pm" style formatSchedule uses for the "Needed" time beside it.
+function placedClock(value) {
+  const d = new Date(String(value || "").replace(" ", "T") + "Z");
+  if (isNaN(d)) return "";
+  const h = d.getHours();
+  return `${h % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")} ${h >= 12 ? "pm" : "am"}`;
+}
+
+function showProblem(message) {
+  card.innerHTML = `
+    <div class="center" style="font-size:2rem;margin-bottom:8px;">🔗</div>
+    <h3 class="center" style="margin-bottom:8px;">This link doesn't work</h3>
+    <p class="text-muted center mb-0">${esc(message)}</p>`;
+}
+
+function render(order, justConfirmed) {
+  const when = order.scheduledFor ? formatSchedule(order.scheduledFor) : "As soon as possible";
+  const placed = placedClock(order.placedAt);
+  const items = order.items.map((it) => `
+    <li><span class="cafe-qty">${esc(it.qty)} ×</span><span translate="no">${esc(it.name)}</span>${it.note ? `<span class="cafe-note">Note: <span translate="no">${esc(it.note)}</span></span>` : ""}</li>`).join("");
+
+  let action;
+  if (order.status === "placed") {
+    action = `<button class="btn btn-lime btn-block cafe-btn" id="prepBtn" onclick="confirmPreparing(this)">✅ I'm preparing it</button>
+      <p class="cafe-foot">Tap it when you start. The customer is told straight away.</p>`;
+  } else if (order.status === "preparing") {
+    action = `<p class="cafe-done">${justConfirmed ? "Thanks — marked as preparing ✓" : "Already marked as preparing ✓"}
+      <small>The customer has been told. A WarpX rider will collect order <span translate="no">#${esc(order.orderNumber)}</span> from you.</small></p>`;
+  } else if (order.status === "out for delivery") {
+    action = `<p class="cafe-info">A rider has already picked this order up. Nothing more to do.</p>`;
+  } else {
+    action = `<p class="cafe-info">This order has been delivered. Nothing more to do.</p>`;
+  }
+
+  card.innerHTML = `
+    <p class="cafe-kicker">Order to prepare</p>
+    <h2 class="cafe-num" translate="no">#${esc(order.orderNumber)}</h2>
+    <p class="cafe-when">Needed: <b>${esc(when)}</b>${placed ? ` · placed ${esc(placed)}` : ""}</p>
+    <ul class="cafe-items">${items}</ul>
+    ${action}`;
+}
+
+async function load() {
+  if (!ORDER_ID || !KEY) return showProblem("Part of the link is missing. Open it again from the order email.");
+  try {
+    const res = await fetch(`/api/cafe/orders/${encodeURIComponent(ORDER_ID)}?key=${encodeURIComponent(KEY)}`);
+    const data = await res.json();
+    if (!res.ok) return showProblem(data.error || "Open it again from the newest order email.");
+    render(data, false);
+  } catch (e) {
+    showProblem("Couldn't reach WarpX. Check the internet connection and try again.");
+  }
+}
+
+async function confirmPreparing(btn) {
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  try {
+    const res = await fetch(`/api/cafe/orders/${encodeURIComponent(ORDER_ID)}/preparing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: KEY }),
+    });
+    const data = await res.json();
+    if (res.status === 409) { render(data, false); return showToast(data.error); }
+    if (!res.ok) throw new Error(data.error || "That didn't save. Please try again.");
+    render(data, data.changed);
+  } catch (e) {
+    showToast(e.message || "That didn't save. Please try again.");
+    btn.disabled = false;
+    btn.textContent = "✅ I'm preparing it";
+  }
+}
+
+load();
+</script>
+<script src="js/translate.js"></script>
+</body>
+</html>

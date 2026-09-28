@@ -95,6 +95,7 @@
       </div>
       <p class="text-muted">Want something from one of them today? Ask on <a href="anything.html" style="color:var(--violet-bright);font-weight:600;">Anything Else</a> and a rider will pick it up for you.</p>
       <div class="grid grid-2 soon-grid" id="soonGrid"></div>
+      <button type="button" class="btn btn-outline soon-more" id="soonMore" onclick="showAllRestaurants()" aria-controls="soonGrid" aria-expanded="false" hidden></button>
     </div>
   </div>
 </section>
@@ -270,18 +271,40 @@ function addCustomFood() {
 
 /* Listed without a menu yet: plain cards, no button, nothing to tap. The
    typeof check covers the one visit where the service worker still hands out
-   yesterday's menu-data.js, which has no RESTAURANTS. */
+   yesterday's menu-data.js, which has no RESTAURANTS.
+   The best-known eight show; the rest wait behind "Show all" so a phone
+   isn't scrolled through fifty cards to reach the footer. */
+const SOON_PREVIEW = 8;
+
 function renderComingSoon() {
   if (typeof RESTAURANTS === "undefined" || !RESTAURANTS.length) return;
-  document.getElementById("soonGrid").innerHTML = RESTAURANTS.map((r) => `
-    <div class="soon-card">
+  document.getElementById("soonGrid").innerHTML = RESTAURANTS.map((r, i) => `
+    <div class="soon-card${i >= SOON_PREVIEW ? " soon-extra" : ""}"${i === SOON_PREVIEW ? ' tabindex="-1"' : ""}>
       <div class="soon-icon" aria-hidden="true">${r.icon}</div>
       <div style="min-width:0;">
         <div class="soon-name" translate="no">${esc(r.name)}</div>
         <p class="soon-meta">${esc(r.kind)} · <span translate="no">${esc(r.area || "Brahmapuri")}</span></p>
       </div>
     </div>`).join("");
+  if (RESTAURANTS.length > SOON_PREVIEW) {
+    const more = document.getElementById("soonMore");
+    more.textContent = `Show all ${RESTAURANTS.length} restaurants`;
+    more.hidden = false;
+  }
   document.getElementById("soonSection").hidden = false;
+}
+
+// One way only: once open it stays open, so nothing above the reader's
+// place collapses and yanks the page. Focus goes to the first card that
+// just appeared, where the button was.
+function showAllRestaurants() {
+  const grid = document.getElementById("soonGrid");
+  grid.classList.add("show-all");
+  const more = document.getElementById("soonMore");
+  more.setAttribute("aria-expanded", "true");
+  more.hidden = true;
+  const next = grid.querySelector(".soon-extra");
+  if (next) next.focus();
 }
 
 renderMenu();

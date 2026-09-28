@@ -435,7 +435,7 @@ This keeps the precision (real coordinates, an accurate radius check) while keep
 
 `js/menu-data.js` holds the full Picasso Cafe menu extracted from the supplied PDF (Cold Brews, Mocktails, Munchies, Shakes, Speciality Coffees, Others), including taglines/notes and the one MOQ-2 item.
 
-The same file lists 20 more Brahmapuri restaurants in `RESTAURANTS` (name, kind, area). The food page shows them below Picasso's menu as "menus coming soon" cards, with no button and nothing to order, and points anyone who wants something from one of them today to Anything Else. Only names and areas go there, because the file is public. A restaurant's email, phone and pickup address belong on the server. Giving one of them a menu needs the routing described under "One cafe" in Known limitations first.
+The same file lists 55 more Brahmapuri restaurants in `RESTAURANTS` (name, kind, area), best-known first. The food page shows them below Picasso's menu as "menus coming soon" cards, with no button and nothing to order: the first eight, then the rest behind "Show all". It also points anyone who wants something from one of them today to Anything Else. Only names and areas go there, because the file is public. A restaurant's email, phone and pickup address belong on the server. Giving one of them a menu needs the routing described under "One cafe" in Known limitations first.
 
 ## Design refresh: scroll animation, colors, buttons
 

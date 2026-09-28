@@ -505,11 +505,6 @@ app.post("/api/auth/logout", (req, res) => {
 const resetRequestLimiter = createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
 const resetCodeLimiter = createLimiter({ max: 5, windowMs: 15 * 60 * 1000 });
 
-function maskEmail(email) {
-  const [name, domain] = email.split("@");
-  return `${name[0]}•••@${domain}`;
-}
-
 app.post("/api/auth/reset/request", (req, res) => {
   // Counted per attempt: each one sends an email, so this is also what stops
   // someone flooding a customer's inbox.
@@ -517,9 +512,17 @@ app.post("/api/auth/reset/request", (req, res) => {
   resetRequestLimiter.fail(req.ip);
   const url = process.env.N8N_RESET_WEBHOOK_URL || config.N8N_RESET_WEBHOOK_URL;
   const phone = String((req.body || {}).phone || "").trim();
+  const email = String((req.body || {}).email || "").trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: "Enter the email address on your account." });
   const user = phone && db.prepare("SELECT id, email FROM users WHERE phone = ?").get(phone);
   if (!user) return res.status(404).json({ error: "No WarpX account uses that number." });
   if (!user.email || !url) return res.status(404).json({ error: "There's no email on this account, so we can't send a code. Call us and we'll reset it for you.", noEmail: true });
+  // The customer has to type the address themselves: the code only goes to
+  // an email they already know is on the account, never to one on file that
+  // they didn't give.
+  if (email !== user.email.toLowerCase()) {
+    return res.status(400).json({ error: "That email doesn't match the one on this account." });
+  }
 
   const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
   db.prepare("UPDATE users SET reset_code_hash = ?, reset_expires_at = datetime('now', '+15 minutes') WHERE id = ?")
@@ -535,7 +538,7 @@ app.post("/api/auth/reset/request", (req, res) => {
 <p style="color:#555;font-size:13px">It works for 15 minutes. Never share it with anyone, including our delivery partners. If you didn't ask for this, ignore this email; your password hasn't changed.</p>
 <p>Team WarpX</p></div>`,
   });
-  res.json({ sentTo: maskEmail(user.email) });
+  res.json({ sentTo: user.email });
 });
 
 app.post("/api/auth/reset/confirm", (req, res) => {

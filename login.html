@@ -98,7 +98,11 @@
           <p class="hint" id="forgotLink"><a href="#" onclick="toggleReset(event)">Forgot password?</a></p>
         </div>
         <div class="card" id="resetPanel" style="display:none;padding:18px;margin-bottom:16px;">
-          <p class="hint" style="margin-top:0;">We'll email a 6-digit code to the address on your account.</p>
+          <div class="field">
+            <label for="resetEmail">Email on your account</label>
+            <input type="email" id="resetEmail" placeholder="you@example.com" translate="no" autocomplete="email" inputmode="email">
+            <p class="hint">We'll email a 6-digit code to it if it matches your account.</p>
+          </div>
           <button type="button" class="btn btn-primary btn-sm" onclick="requestResetCode(this)">Email me a code</button>
           <div id="resetStep2" style="display:none;margin-top:14px;">
             <p class="hint" id="resetSentTo" translate="no"></p>
@@ -245,10 +249,12 @@ async function postJson(url, body) {
 
 async function requestResetCode(btn) {
   const phone = document.getElementById("authPhone").value.trim();
+  const email = document.getElementById("resetEmail").value.trim();
   if (!phone) return showToast("Enter your mobile number above first.");
+  if (!email) return showToast("Enter the email on your account.");
   btn.disabled = true;
   try {
-    const { ok, data } = await postJson("/api/auth/reset/request", { phone });
+    const { ok, data } = await postJson("/api/auth/reset/request", { phone, email });
     if (!ok) {
       return showToast(data.noEmail ? data.error + " Email raghavmohata24@gmail.com." : data.error || "Couldn't send a code. Try again.");
     }

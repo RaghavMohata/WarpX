@@ -115,6 +115,54 @@ function escapeAttr(str) {
   return div.innerHTML;
 }
 
+function toggleAccountForm() {
+  const form = document.getElementById("accountForm");
+  form.style.display = form.style.display === "none" ? "block" : "none";
+}
+
+/* PATCH and DELETE share the same confirm step: a password when the account
+   has one, or confirm: true for Google-only accounts (the server says which
+   by answering needsPassword / needsConfirm). */
+async function accountRequest(method, body) {
+  const user = getWarpxUser();
+  const send = (extra) => apiFetch(`/api/users/${user.id}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, password: document.getElementById("acctPassword").value, ...extra }),
+  });
+  let res = await send();
+  let data = await res.json().catch(() => ({}));
+  if (res.status === 401 && data.needsConfirm) {
+    res = await send({ confirm: true });
+    data = await res.json().catch(() => ({}));
+  }
+  if (res.status === 401 && data.needsPassword) document.getElementById("acctPassword").focus();
+  return { ok: res.ok, data };
+}
+
+async function saveAccount(e) {
+  e.preventDefault();
+  const { ok, data } = await accountRequest("PATCH", {
+    phone: document.getElementById("acctPhone").value,
+    email: document.getElementById("acctEmail").value,
+  });
+  if (!ok) return showToast(data.error || "Couldn't save. Try again.");
+  const user = getWarpxUser();
+  localStorage.setItem("warpx_user", JSON.stringify({ ...user, phone: data.phone, email: data.email }));
+  showToast("Account updated.");
+  loadOrders();
+}
+
+async function deleteAccount() {
+  if (!confirm("Delete your WarpX account? Your saved addresses go with it. This can't be undone.")) return;
+  const { ok, data } = await accountRequest("DELETE", {});
+  if (!ok) return showToast(data.error || "Couldn't delete. Try again.");
+  localStorage.removeItem("warpx_user");
+  localStorage.removeItem("warpx_location");
+  showToast("Your account has been deleted.");
+  setTimeout(() => { window.location.href = "index.html"; }, 1200);
+}
+
 async function logout() {
   await logoutCustomer();
   localStorage.removeItem("warpx_location");
@@ -176,18 +224,42 @@ async function loadOrders() {
     return;
   }
 
-  profileCard.innerHTML = `
+  // The 15s tracking refresh calls this too; don't wipe a half-typed account form.
+  const openForm = document.getElementById("accountForm");
+  if (!openForm || openForm.style.display === "none") profileCard.innerHTML = `
     <div class="card" style="padding:22px 26px;margin-bottom:24px;">
       <div class="row-between" style="flex-wrap:wrap;gap:12px;">
         <div class="flex items-center gap-12">
           <div class="service-icon" style="background:var(--grad-warp-soft);color:var(--violet-bright);font-size:1.3rem;">👤</div>
           <div>
             <div style="font-weight:700;">${escapeAttr(user.name || "WarpX customer")}</div>
-            <div class="text-muted" style="font-size:.85rem;">${escapeAttr(user.phone)}</div>
+            <div class="text-muted" style="font-size:.85rem;" translate="no">${escapeAttr(user.phone)}${user.email ? " · " + escapeAttr(user.email) : ""}</div>
           </div>
         </div>
-        <button class="btn btn-outline btn-sm" onclick="logout()">Log out</button>
+        <div class="flex gap-12">
+          <button class="btn btn-ghost btn-sm" onclick="toggleAccountForm()">Edit account</button>
+          <button class="btn btn-outline btn-sm" onclick="logout()">Log out</button>
+        </div>
       </div>
+      <form id="accountForm" style="display:none;margin-top:18px;" onsubmit="saveAccount(event)">
+        <div class="field">
+          <label for="acctPhone">Mobile number</label>
+          <input type="tel" id="acctPhone" value="${escapeAttr(user.phone)}" translate="no">
+        </div>
+        <div class="field">
+          <label for="acctEmail">Email <span class="text-muted" style="font-weight:400;">(optional)</span></label>
+          <input type="email" id="acctEmail" value="${escapeAttr(user.email || "")}" placeholder="you@example.com" translate="no" inputmode="email">
+        </div>
+        <div class="field">
+          <label for="acctPassword">Current password</label>
+          <input type="password" id="acctPassword" autocomplete="current-password">
+          <p class="hint">Needed to change your number or delete your account. Signed up with Google? Leave it empty. Forgot it? Call us and we'll reset it.</p>
+        </div>
+        <div class="row-between" style="flex-wrap:wrap;gap:12px;">
+          <button type="submit" class="btn btn-primary btn-sm">Save changes</button>
+          <button type="button" class="btn btn-danger-outline btn-sm" onclick="deleteAccount()">Delete account</button>
+        </div>
+      </form>
     </div>
   `;
 

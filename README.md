@@ -78,6 +78,9 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `POST /api/auth/logout` | End one session — `{ "kind": "user" }`, `"driver"` or `"admin"` |
 | `POST /api/admin/login` | The owner's password, checked on the server; starts an owner session |
 | `GET /api/admin/session` | 200 if this browser holds a live owner session — how `admin.html` decides whether to show the password box |
+| `POST /api/admin/users/reset-password` | Owner only: `{ phone }` → a one-time `tempPassword` for a customer who forgot theirs, and signs out all their sessions. Confirm it's really them (call the number back) before reading it out |
+| `PATCH /api/users/:id` | Change your own `email` and/or `phone`. A new phone needs `password` (or `confirm: true` on a Google-only account); 401 `needsPassword` / `needsConfirm` otherwise, 409 if the number is taken |
+| `DELETE /api/users/:id` | Delete your own account, same confirmation as a phone change. Refused (409) while an order is undelivered. Orders are kept for the owner's books but lose their link to the person, address, map pin, UPI id and delivery code; addresses, locations, weekly plans and sessions are deleted |
 | `POST /api/users/:id/location` | Save a captured location; computes and returns the delivery zone/ETA server-side via `lib/zone.js` |
 | `GET /api/users/:id/location` | Fetch a user's most recent saved location |
 | `POST /api/orders` | Place an order — **requires a signed-in customer**, identified by their session cookie (401 otherwise); computes totals server-side, persists the order + line items + payment method + a snapshot of the customer's current lat/lng/address |

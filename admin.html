@@ -64,6 +64,16 @@
     </div>
   </div>
 
+  <details class="card" style="padding:14px 20px;margin-bottom:18px;">
+    <summary style="cursor:pointer;font-weight:600;">🔑 Customer forgot their password</summary>
+    <p class="text-muted" style="font-size:.85rem;margin:10px 0;">First make sure it's really them: call that number back. This signs them out everywhere and gives a new password to read out to them.</p>
+    <form class="flex gap-8" style="flex-wrap:wrap;" onsubmit="resetCustomerPassword(event)">
+      <input type="tel" id="resetPhone" placeholder="Customer's mobile number" translate="no" style="flex:1 1 200px;">
+      <button type="submit" class="btn btn-primary btn-sm">Reset password</button>
+    </form>
+    <p id="resetResult" style="margin:10px 0 0;" translate="no"></p>
+  </details>
+
   <div class="segmented" id="mainTabs" style="margin-bottom:18px;">
     <button type="button" class="active" data-tab="orders">📦 Orders</button>
     <button type="button" data-tab="drivers">🚴 Drivers <span id="driverBadge" class="badge badge-lime" style="display:none;margin-left:4px;"></span></button>
@@ -173,6 +183,22 @@ async function adminFetch(url, options) {
     }
   }
   return res;
+}
+
+async function resetCustomerPassword(e) {
+  e.preventDefault();
+  const out = document.getElementById("resetResult");
+  const phone = document.getElementById("resetPhone").value.trim();
+  if (!phone || !confirm(`Reset the password for ${phone}? Their old password stops working.`)) return;
+  const res = await adminFetch("/api/admin/users/reset-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone }),
+  });
+  const data = await res.json().catch(() => ({}));
+  out.textContent = res.ok
+    ? `New password: ${data.tempPassword}. Tell them to log in with it now.`
+    : data.error || "Couldn't reset it. Try again.";
 }
 
 function showLockScreen(message) {

@@ -515,6 +515,101 @@ app.post("/api/admin/login", (req, res) => {
 // Lets admin.html decide between the dashboard and the login box on load.
 app.get("/api/admin/session", requireAdmin, (req, res) => res.json({ ok: true }));
 
+/* A customer who forgot their password rings the owner. There's no verified
+   email or SMS to send a reset to, so the owner confirms it's really them
+   (calls that number back) and reads out this one-time password. Every
+   session on the account ends, so whoever else might be signed in is out. */
+app.post("/api/admin/users/reset-password", requireAdmin, (req, res) => {
+  const phone = String((req.body || {}).phone || "").trim();
+  const user = phone && db.prepare("SELECT id FROM users WHERE phone = ?").get(phone);
+  if (!user) return res.status(404).json({ error: "No customer account with that number." });
+  const tempPassword = crypto.randomBytes(6).toString("base64url").slice(0, 8);
+  const { hash, salt } = hashPassword(tempPassword);
+  db.prepare("UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?").run(hash, salt, user.id);
+  db.prepare("DELETE FROM sessions WHERE kind = 'user' AND subject_id = ?").run(user.id);
+  res.json({ tempPassword });
+});
+
+/* ---- Account settings -----------------------------------------------------
+   Changing the phone number or deleting the account hands over or ends the
+   whole account, so a borrowed, unlocked phone isn't enough: the password has
+   to be typed again. Google-only accounts have no password — their Google
+   sign-in is the proof — so they send confirm: true after a confirm dialog.
+   Returns an error response, or null when it's really them. */
+function confirmIdentity(req, res, user) {
+  const { password, confirm } = req.body || {};
+  if (!user.password_hash) {
+    return confirm === true ? null : res.status(401).json({ error: "Please confirm first.", needsConfirm: true });
+  }
+  if (loginLimiter.blocked(req.ip)) return tooMany(res, loginLimiter, req.ip);
+  if (!password) return res.status(401).json({ error: "Enter your password to confirm.", needsPassword: true });
+  if (!verifyPassword(password, user.password_hash, user.password_salt)) {
+    loginLimiter.fail(req.ip);
+    return res.status(401).json({ error: "That password isn't right.", needsPassword: true });
+  }
+  return null;
+}
+
+app.patch("/api/users/:id", requireUser, (req, res) => {
+  if (!claims(req, req.params.id)) return authRequired(res, "user");
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.userId);
+  const { email, phone } = req.body || {};
+
+  let newEmail = user.email;
+  if (email !== undefined) {
+    const checked = cleanEmail(email);
+    if (!checked.ok) return res.status(400).json({ error: checked.error });
+    newEmail = checked.email;
+  }
+
+  let newPhone = user.phone;
+  if (phone !== undefined && String(phone).trim() !== user.phone) {
+    newPhone = String(phone).trim();
+    if (!newPhone) return res.status(400).json({ error: "We need a mobile number to deliver to." });
+    const refused = confirmIdentity(req, res, user);
+    if (refused) return;
+  }
+
+  try {
+    db.prepare("UPDATE users SET email = ?, phone = ? WHERE id = ?").run(newEmail, newPhone, user.id);
+  } catch (err) {
+    // The UNIQUE constraint on phone is the real guard, as at sign-up.
+    return res.status(409).json({ error: "That number already has a WarpX account." });
+  }
+  res.json(publicUser(db.prepare("SELECT * FROM users WHERE id = ?").get(user.id)));
+});
+
+/* Deleting keeps the orders — the owner's takings and every rider's earnings
+   are counted from them — but cuts them loose from the person: no account,
+   no address, no map pin, no UPI id, no delivery code. Refused while anything
+   is still on its way, since the rider needs the address and code to finish. */
+app.delete("/api/users/:id", requireUser, (req, res) => {
+  if (!claims(req, req.params.id)) return authRequired(res, "user");
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.userId);
+  const refused = confirmIdentity(req, res, user);
+  if (refused) return;
+
+  const open = db.prepare("SELECT COUNT(*) AS n FROM orders WHERE user_id = ? AND status != 'delivered'").get(user.id).n;
+  if (open) return res.status(409).json({ error: "You have an order on its way. You can delete your account once it's delivered." });
+
+  // Children before the user row: node:sqlite enforces the foreign keys.
+  db.exec("BEGIN");
+  try {
+    db.prepare("UPDATE orders SET user_id = NULL, address = NULL, lat = NULL, lng = NULL, upi_id = NULL, delivery_otp = NULL WHERE user_id = ?").run(user.id);
+    for (const table of ["weekly_plans", "addresses", "locations"]) {
+      db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(user.id);
+    }
+    db.prepare("DELETE FROM sessions WHERE kind = 'user' AND subject_id = ?").run(user.id);
+    db.prepare("DELETE FROM users WHERE id = ?").run(user.id);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  sessions.endSession(db, req, res, "user");
+  res.json({ ok: true });
+});
+
 // Save a captured location and compute the delivery zone/ETA server-side.
 app.post("/api/users/:id/location", requireUser, (req, res) => {
   if (!claims(req, req.params.id)) return authRequired(res, "user");

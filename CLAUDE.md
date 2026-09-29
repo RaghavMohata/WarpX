@@ -42,10 +42,17 @@ The one deliberate exception is the cafe's link: `requireCafeKey` checks a
 per-order HMAC key (`lib/cafe.js`) that can only move that one order from
 `placed` to `preparing`. Keep it that narrow. Opening the link (a GET) must
 never change anything, because mail scanners open links on their own.
+The cafe's second way in is `kitchen.html` with its own password
+(`requireCafe`, a `wx_cafe` session): accept, cancel, sold-out switches. It
+gets no n8n key and no owner routes, and its responses go through `cafeView()`.
+
+**`cancelled` is a terminal status.** Any query meaning "still open" uses
+`status NOT IN ('delivered','cancelled')`, never `!= 'delivered'`. Otherwise a
+cancelled order goes back on the driver board.
 
 **The cafe never sees WarpX's prices.** Menu prices include WarpX's ₹15/item
 margin over Picasso's own. Anything sent to or shown to the cafe (the `cafe`
-block in the new-order webhook, `cafe.html`, `GET /api/cafe/orders/:id`)
+block in the new-order webhook, `cafe.html`, `GET /api/cafe/orders/:id`, `kitchen.html`, `/api/cafe/queue`)
 carries items, quantities and notes only: no price, no total, no customer.
 
 **The web server hands out an allowlist, not the folder.** Root `.html` pages,

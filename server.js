@@ -67,6 +67,7 @@ const AUTH_MESSAGES = {
   user: "Please log in again.",
   driver: "Please sign in to the Driver Hub again.",
   admin: "Owner login required.",
+  cafe: "Please sign in to the cafe page again.",
 };
 // authRequired tells the page which login to send the person back to.
 function authRequired(res, kind, message) {
@@ -114,10 +115,19 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// The cafe's counter login (kitchen.html). No n8n key here: the cafe's
+// routes are the cafe's alone, and the owner doesn't act through them.
+function requireCafe(req, res, next) {
+  const s = sessions.findSession(db, "cafe", sessions.readToken(req, "cafe"));
+  if (!s || s.fingerprint !== SECRETS.cafeFingerprint) return authRequired(res, "cafe");
+  next();
+}
+
 /* Failed-attempt limits (lib/ratelimit.js). Keyed on req.ip, which the trust
    proxy setting above makes the real visitor even through ngrok. */
 const loginLimiter = createLimiter({ max: 20, windowMs: 15 * 60 * 1000 });
 const adminLimiter = createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
+const cafeLimiter = createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
 const signupLimiter = createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
 // Per order, not per IP: 10,000 possible codes is only safe if nobody can try them all.
 const otpLimiter = createLimiter({ max: 5, windowMs: 15 * 60 * 1000 });
@@ -270,6 +280,18 @@ function resolvePrice(item) {
   // priced by hand at pickup rather than trusted from the request.
   return listed == null ? null : listed;
 }
+
+function soldOutNames() {
+  return db.prepare("SELECT name FROM sold_out ORDER BY name").all().map((r) => r.name);
+}
+
+function soldOutAmong(items) {
+  const off = new Set(soldOutNames());
+  return [...new Set(items.filter((it) => it && it.service === "food" && off.has(it.name)).map((it) => it.name))];
+}
+
+// Public: food.html greys these out. Names only.
+app.get("/api/menu/sold-out", (req, res) => res.json(soldOutNames()));
 
 /* Opening hours as the SHOP sees them. The browser must not decide this from
    its own clock: a customer in another timezone (or with a wrong device
@@ -499,10 +521,10 @@ app.post("/api/auth/login", (req, res) => {
   res.json(publicUser(user));
 });
 
-// Signs out one kind of session: the customer, the driver or the owner.
+// Signs out one kind of session: the customer, the driver, the owner or the cafe.
 app.post("/api/auth/logout", (req, res) => {
   const kind = (req.body || {}).kind;
-  if (!sessions.COOKIE[kind]) return res.status(400).json({ error: "kind must be user, driver or admin." });
+  if (!sessions.COOKIE[kind]) return res.status(400).json({ error: "kind must be user, driver, admin or cafe." });
   sessions.endSession(db, req, res, kind);
   res.json({ ok: true });
 });
@@ -679,7 +701,7 @@ app.delete("/api/users/:id", requireUser, (req, res) => {
   const refused = confirmIdentity(req, res, user);
   if (refused) return;
 
-  const open = db.prepare("SELECT COUNT(*) AS n FROM orders WHERE user_id = ? AND status != 'delivered'").get(user.id).n;
+  const open = db.prepare("SELECT COUNT(*) AS n FROM orders WHERE user_id = ? AND status NOT IN ('delivered','cancelled')").get(user.id).n;
   if (open) return res.status(409).json({ error: "You have an order on its way. You can delete your account once it's delivered." });
 
   // Children before the user row: node:sqlite enforces the foreign keys.
@@ -937,6 +959,13 @@ app.post("/api/orders", requireUser, (req, res) => {
     });
   }
 
+  // The menu page greys sold-out items, but a cart saved earlier can still
+  // hold one — this is the check that counts.
+  const soldOut = soldOutAmong(items);
+  if (soldOut.length) {
+    return res.status(409).json({ error: `Sold out right now: ${soldOut.join(", ")}. Remove it from your cart.`, soldOut });
+  }
+
   // Resolved once, then reused for both the subtotal and the stored line items,
   // so what's charged and what's recorded can never disagree.
   const priced = items.map((it) => ({ ...it, price: resolvePrice(it) }));
@@ -1030,7 +1059,7 @@ function currentActiveWeeklyWindow() {
        WHERE w.status = 'open'
           OR (w.status = 'closed'
               AND EXISTS (SELECT 1 FROM orders o
-                          WHERE o.weekly_window_id = w.id AND o.status != 'delivered'))
+                          WHERE o.weekly_window_id = w.id AND o.status NOT IN ('delivered','cancelled')))
        ORDER BY w.id DESC LIMIT 1`
     )
     .get();
@@ -1467,7 +1496,7 @@ app.get("/api/orders/available", requireDriver, (req, res) => {
       // owner's route-assignment step, so a driver can't cherry-pick
       // individual weekly stops and defeat the whole point of routing them.
       `SELECT * FROM orders
-       WHERE driver_id IS NULL AND status != 'delivered' AND weekly_window_id IS NULL
+       WHERE driver_id IS NULL AND status NOT IN ('delivered','cancelled') AND weekly_window_id IS NULL
        ORDER BY id DESC`
     )
     .all();
@@ -1556,20 +1585,100 @@ app.get("/api/cafe/orders/:id", requireCafeKey, (req, res) => {
   res.json(cafeView(req.cafeOrder, req.cafeItems));
 });
 
-app.post("/api/cafe/orders/:id/preparing", requireCafeKey, (req, res) => {
-  const order = req.cafeOrder;
-  // Forward only, and only from "placed": a link can't pull an order back off
-  // the road or undo what the owner or a driver already did.
+/* placed -> preparing, shared by the email link and kitchen.html. Forward
+   only, and only from "placed": neither can pull an order back off the road
+   or undo what the owner or a driver already did. */
+const CAFE_TOO_LATE = {
+  "out for delivery": "A rider has already picked this order up.",
+  delivered: "This order has already been delivered.",
+  cancelled: "This order was cancelled.",
+};
+
+function markPreparing(res, order, items) {
   const info = db.prepare("UPDATE orders SET status = 'preparing' WHERE id = ? AND status = 'placed'").run(order.id);
   const now = db.prepare("SELECT * FROM orders WHERE id = ?").get(order.id);
   if (info.changes) notifyN8nStatus(order, "preparing");
-  if (!info.changes && (now.status === "out for delivery" || now.status === "delivered")) {
-    return res.status(409).json({
-      error: now.status === "delivered" ? "This order has already been delivered." : "A rider has already picked this order up.",
-      ...cafeView(now, req.cafeItems),
-    });
+  if (!info.changes && CAFE_TOO_LATE[now.status]) {
+    return res.status(409).json({ error: CAFE_TOO_LATE[now.status], ...cafeView(now, items) });
   }
-  res.json({ ...cafeView(now, req.cafeItems), changed: info.changes > 0 });
+  res.json({ ...cafeView(now, items), changed: info.changes > 0 });
+}
+
+app.post("/api/cafe/orders/:id/preparing", requireCafeKey, (req, res) => {
+  markPreparing(res, req.cafeOrder, req.cafeItems);
+});
+
+/* ---- kitchen.html: the cafe's own page ---------------------------------------
+   Signed in with CAFE_PASSWORD (warpx-secrets.json), a second way in beside
+   the per-order email link. Same rule as the link: items, quantities, notes
+   and order numbers only — every order goes out through cafeView(). */
+app.post("/api/cafe/login", (req, res) => {
+  if (cafeLimiter.blocked(req.ip)) return tooMany(res, cafeLimiter, req.ip);
+  const { password } = req.body || {};
+  if (!password || !secrets.safeEqual(password, SECRETS.cafePassword)) {
+    cafeLimiter.fail(req.ip);
+    return res.status(401).json({ error: "Wrong password." });
+  }
+  cafeLimiter.reset(req.ip);
+  sessions.startSession(db, req, res, "cafe", null, SECRETS.cafeFingerprint);
+  res.json({ ok: true });
+});
+
+app.get("/api/cafe/session", requireCafe, (req, res) => res.json({ ok: true }));
+
+const cafeFoodItems = db.prepare("SELECT name, qty, note FROM order_items WHERE order_id = ? AND service = 'food'");
+
+// What's still to make, plus what was cancelled in the last two hours so the
+// counter can see it went through.
+app.get("/api/cafe/queue", requireCafe, (req, res) => {
+  const orders = db.prepare(
+    `SELECT * FROM orders o
+      WHERE EXISTS (SELECT 1 FROM order_items i WHERE i.order_id = o.id AND i.service = 'food')
+        AND (o.status IN ('placed', 'preparing')
+             OR (o.status = 'cancelled' AND o.created_at > datetime('now', '-2 hours')))
+      ORDER BY COALESCE(o.scheduled_for, o.created_at), o.id`
+  ).all();
+  res.json(orders.map((o) => ({ id: o.id, cancelReason: o.cancel_reason || null, ...cafeView(o, cafeFoodItems.all(o.id)) })));
+});
+
+function cafeQueueOrder(req, res) {
+  const id = Number(req.params.id);
+  const order = Number.isInteger(id) && id > 0 ? db.prepare("SELECT * FROM orders WHERE id = ?").get(id) : null;
+  const items = order ? cafeFoodItems.all(id) : [];
+  if (!order || !items.length) { res.status(404).json({ error: "No such order." }); return null; }
+  return { order, items };
+}
+
+app.post("/api/cafe/queue/:id/accept", requireCafe, (req, res) => {
+  const found = cafeQueueOrder(req, res);
+  if (found) markPreparing(res, found.order, found.items);
+});
+
+const CANCEL_REASONS = ["Item sold out", "Kitchen closing", "Too busy right now", "Other"];
+
+// ponytail: cancels the whole order, even the grocery part of a mixed one.
+// Split per line if mixed food + grocery orders become common.
+app.post("/api/cafe/queue/:id/cancel", requireCafe, (req, res) => {
+  const reason = (req.body || {}).reason;
+  if (!CANCEL_REASONS.includes(reason)) return res.status(400).json({ error: `Pick a reason: ${CANCEL_REASONS.join(", ")}.` });
+  const found = cafeQueueOrder(req, res);
+  if (!found) return;
+  const info = db.prepare(
+    "UPDATE orders SET status = 'cancelled', cancel_reason = ? WHERE id = ? AND status IN ('placed', 'preparing')"
+  ).run(reason, found.order.id);
+  const now = db.prepare("SELECT * FROM orders WHERE id = ?").get(found.order.id);
+  if (!info.changes) {
+    return res.status(409).json({ error: CAFE_TOO_LATE[now.status] || "This order can't be cancelled now.", ...cafeView(now, found.items) });
+  }
+  notifyN8nStatus(found.order, "cancelled");
+  res.json({ id: now.id, cancelReason: reason, ...cafeView(now, found.items) });
+});
+
+app.put("/api/cafe/menu/sold-out", requireCafe, (req, res) => {
+  const { name, soldOut } = req.body || {};
+  if (!MENU_PRICES.has(name)) return res.status(400).json({ error: "That isn't on the menu." });
+  db.prepare(soldOut ? "INSERT OR IGNORE INTO sold_out (name) VALUES (?)" : "DELETE FROM sold_out WHERE name = ?").run(name);
+  res.json(soldOutNames());
 });
 
 /* A driver marking an order collected. Claiming an order is not the same as
@@ -1594,7 +1703,11 @@ app.patch("/api/orders/:id/pickup", driverOrServiceKey, (req, res) => {
   const order = db.prepare("SELECT * FROM orders WHERE id = ? AND driver_id = ?").get(id, driverId);
   if (!order) return res.status(403).json({ error: "That order isn't assigned to you." });
   if (order.status === "delivered") return res.status(409).json({ error: "That order is already delivered." });
-  db.prepare("UPDATE orders SET status = 'out for delivery' WHERE id = ? AND driver_id = ?").run(id, driverId);
+  if (order.status === "cancelled") return res.status(409).json({ error: "The cafe cancelled this order. Don't collect it." });
+  // The status check rides on the UPDATE too, so a cancel landing between the
+  // read above and this write still wins.
+  const picked = db.prepare("UPDATE orders SET status = 'out for delivery' WHERE id = ? AND driver_id = ? AND status != 'cancelled'").run(id, driverId);
+  if (!picked.changes) return res.status(409).json({ error: "The cafe cancelled this order. Don't collect it." });
   if (order.status !== "out for delivery") notifyN8nStatus(order, "out for delivery");
   res.json({ id, status: "out for delivery" });
 });
@@ -1860,14 +1973,14 @@ app.get("/api/drivers/:id/summary", requireDriver, (req, res) => {
   const pay = payFor({ deliveries: stats.today, feeTotal: stats.feesToday, distanceFeeTotal: stats.distanceFeesToday, percent: progress.percent });
 
   const active = db
-    .prepare("SELECT * FROM orders WHERE driver_id = ? AND weekly_window_id IS NULL AND status != 'delivered' ORDER BY id ASC")
+    .prepare("SELECT * FROM orders WHERE driver_id = ? AND weekly_window_id IS NULL AND status NOT IN ('delivered','cancelled') ORDER BY id ASC")
     .all(id);
   // Ordered day by day, then along each day's route. The date lives on the
   // order's own scheduled_for now, so no join back to the window is needed.
   const weeklyStopRows = db
     .prepare(
       `SELECT * FROM orders
-       WHERE driver_id = ? AND weekly_window_id IS NOT NULL AND status != 'delivered'
+       WHERE driver_id = ? AND weekly_window_id IS NOT NULL AND status NOT IN ('delivered','cancelled')
        ORDER BY scheduled_for ASC, route_position ASC`
     )
     .all(id);
@@ -1903,7 +2016,7 @@ app.patch("/api/orders/:id/claim", requireDriver, (req, res) => {
   // requireDriver has already refused anyone who isn't approved.
   const driverId = req.driverId;
   const info = db
-    .prepare("UPDATE orders SET driver_id = ? WHERE id = ? AND driver_id IS NULL AND status != 'delivered'")
+    .prepare("UPDATE orders SET driver_id = ? WHERE id = ? AND driver_id IS NULL AND status NOT IN ('delivered','cancelled')")
     .run(driverId, id);
   if (info.changes === 0) {
     return res.status(409).json({ error: "Another driver just took that one." });
@@ -1924,6 +2037,7 @@ app.patch("/api/orders/:id/deliver", requireDriver, (req, res) => {
   const order = db.prepare("SELECT * FROM orders WHERE id = ? AND driver_id = ?").get(id, driverId);
   if (!order) return res.status(403).json({ error: "That order isn't assigned to you." });
   if (order.status === "delivered") return res.status(409).json({ error: "That order is already marked delivered." });
+  if (order.status === "cancelled") return res.status(409).json({ error: "This order was cancelled." });
 
   // Orders placed before delivery codes existed have no OTP to check, so they
   // stay completable rather than being stranded forever.
@@ -1943,7 +2057,7 @@ app.patch("/api/orders/:id/deliver", requireDriver, (req, res) => {
   }
 
   const info = db
-    .prepare("UPDATE orders SET status = 'delivered', delivered_at = datetime('now') WHERE id = ? AND driver_id = ?")
+    .prepare("UPDATE orders SET status = 'delivered', delivered_at = datetime('now') WHERE id = ? AND driver_id = ? AND status != 'cancelled'")
     .run(id, driverId);
   if (info.changes === 0) {
     return res.status(403).json({ error: "That order isn't assigned to you." });
@@ -1965,6 +2079,9 @@ app.listen(PORT, () => {
   } else {
     console.log("  Owner dashboard password: see warpx-secrets.json\n");
   }
+  console.log(SECRETS.cafePasswordIsNew
+    ? `  Cafe page password (kitchen.html): ${SECRETS.cafePassword}\n`
+    : "  Cafe page password (kitchen.html): see CAFE_PASSWORD in warpx-secrets.json\n");
   if (SECRETS.adminPassword.length < 8) {
     console.log("  ⚠ The owner password is shorter than 8 characters. Anyone who can reach this site can try to guess it — make it longer.\n");
   }

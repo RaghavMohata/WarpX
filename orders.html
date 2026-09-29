@@ -188,7 +188,13 @@ const TRACK_STEPS = [
   { key: "delivered", label: "Delivered" },
 ];
 
+// Finished either way: nothing left to poll or show a code for.
+const isDone = (o) => o.status === "delivered" || o.status === "cancelled";
+
 function trackerHtml(o) {
+  if (o.status === "cancelled") {
+    return `<p style="margin:0 0 14px;padding:12px 14px;border-radius:var(--radius);background:var(--danger-bg);color:var(--danger);font-weight:600;">Cancelled by the cafe${o.cancel_reason ? `: ${escapeAttr(o.cancel_reason)}` : ""}. You won't be charged.</p>`;
+  }
   const at = TRACK_STEPS.findIndex((s) => s.key === o.status);
   // An unrecognised status shouldn't blank the tracker — fall back to step one.
   const current = at === -1 ? 0 : at;
@@ -197,7 +203,7 @@ function trackerHtml(o) {
       <div class="track-dot">${i < current ? "✓" : ""}</div>
       <div class="track-label">${s.label}</div>
     </div>`).join("");
-  const live = o.status !== "delivered"
+  const live = !isDone(o)
     ? `<div class="track-live"><i></i>Updating live</div>`
     : "";
   return `<div class="track">${steps}</div>${live}`;
@@ -208,7 +214,7 @@ function trackerHtml(o) {
 let trackTimer = null;
 
 function scheduleTracking(orders) {
-  const anyLive = orders.some((o) => o.status !== "delivered");
+  const anyLive = orders.some((o) => !isDone(o));
   if (trackTimer) { clearTimeout(trackTimer); trackTimer = null; }
   if (!anyLive) return;
   trackTimer = setTimeout(() => { loadOrders(); }, 15000);
@@ -287,7 +293,7 @@ async function loadOrders() {
             <b translate="no">#${escapeAttr(o.order_number)}</b>
             <div class="text-muted" style="font-size:.82rem;">${escapeAttr(o.created_at)}</div>
           </div>
-          <span class="badge ${o.status === "delivered" ? "badge-success" : "badge-lime"}">${escapeAttr(o.status)}</span>
+          <span class="badge ${o.status === "delivered" ? "badge-success" : o.status === "cancelled" ? "badge-danger" : "badge-lime"}">${escapeAttr(o.status)}</span>
         </div>
         ${trackerHtml(o)}
         <div style="margin-bottom:10px;">
@@ -308,7 +314,7 @@ async function loadOrders() {
         <div class="text-muted" style="font-size:.8rem;margin-top:6px;">${o.scheduled_for
           ? `Scheduled for <b>${escapeAttr(formatSchedule(o.scheduled_for))}</b>`
           : `Estimated delivery: ${escapeAttr(o.eta_min)} min`} · ${o.payment_method === "upi" ? "📱 UPI" : "💵 Cash on Delivery"}</div>
-        ${o.delivery_otp && o.status !== "delivered" ? `
+        ${o.delivery_otp && !isDone(o) ? `
           <div class="otp-box">
             <span class="otp-label">Your delivery code</span>
             <div class="otp-code" translate="no">${escapeAttr(o.delivery_otp)}</div>

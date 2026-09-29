@@ -601,7 +601,7 @@ function minutesUntilSlot(value) {
 
 function dueSoonOrders(orders) {
   return orders.filter((o) => {
-    if (!o.scheduled_for || o.status === "delivered") return false;
+    if (!o.scheduled_for || o.status === "delivered" || o.status === "cancelled") return false;
     const mins = minutesUntilSlot(o.scheduled_for);
     return mins !== null && mins <= DISPATCH_LEAD_MINUTES;
   });

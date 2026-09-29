@@ -64,6 +64,7 @@ python3 -m http.server 8080
 | `careers.html` | **Work With Us** — delivery driver registration, see below |
 | `driver.html` | **Driver Hub** — a driver's own dashboard, in three tabs: their deliveries, the new-orders board, and their earnings |
 | `admin.html` | **Owner dashboard** — see below |
+| `kitchen.html` | **Cafe page** — Picasso's counter: accept or cancel food orders, tick menu items sold out. Its own password — see "The cafe's page" below |
 
 Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page navigation before checkout. Once you log in or place an order, that data is also written to `warpx.db` via the API in `server.js` — `localStorage` is now just a client-side cache (and the offline fallback), not the source of truth.
 
@@ -99,6 +100,12 @@ Cart-building state lives in `localStorage` (`js/cart.js`) so items survive page
 | `PATCH /api/orders/:id/deliver` | A driver completes their own order — requires the customer's 4-digit delivery code, and is what advances the progress bar |
 | `GET /api/cafe/orders/:id?key=…` | What the cafe's confirm page shows: order number, when it's needed, food lines and notes. No prices, no customer. The per-order key from the cafe's email is the only credential |
 | `POST /api/cafe/orders/:id/preparing` | The cafe's "I'm preparing it" — `{ "key": "…" }`; moves that order from `placed` to `preparing` and nothing else |
+| `POST /api/cafe/login` | `{ "password": "…" }` → cafe session cookie (`wx_cafe`). `CAFE_PASSWORD` from `warpx-secrets.json`; 10 wrong tries per 15 min |
+| `GET /api/cafe/queue` | Cafe session. Food orders still `placed`/`preparing`, plus ones cancelled in the last 2 hours. Same no-prices, no-customer view as the email link |
+| `POST /api/cafe/queue/:id/accept` | Cafe session. `placed` → `preparing` (same rule as the email button) |
+| `POST /api/cafe/queue/:id/cancel` | Cafe session. `{ "reason": "Item sold out" \| "Kitchen closing" \| "Too busy right now" \| "Other" }`. Only while `placed` or `preparing`; 409 once a rider has it |
+| `PUT /api/cafe/menu/sold-out` | Cafe session. `{ "name": "Berry Brew", "soldOut": true }` → the full sold-out list |
+| `GET /api/menu/sold-out` | Public. Names of sold-out menu items; `POST /api/orders` refuses them with 409 `soldOut: [...]` |
 
 **Who can call what** is in "Accounts, sessions and the owner password" below: in short, a customer's routes need that customer's session, the Driver Hub's need an approved driver's, and everything the dashboard uses needs the owner's (or n8n's key).
 
@@ -273,6 +280,21 @@ When an order includes food, Picasso gets an email with what to make, and a butt
 The link needs the site's public address: `PUBLIC_URL` in `config.js` (`https://warpx.online`). Leave it empty and the email still goes out, just without the button. Changing `CAFE_LINK_SECRET` breaks every link already sent, so only do it if one leaked.
 
 The same `confirmUrl` works anywhere, not just in email: a WhatsApp or Telegram message to the cafe can carry it too.
+
+### The cafe's page (`kitchen.html`): accept, cancel, sold out
+
+The email button covers one order at a time. `kitchen.html` is Picasso's counter page for all of them. Keep it open on the counter phone:
+
+- **Orders tab**: every food order still to make, oldest first, checked every 15 seconds. **✅ Accept** does what the email button does. **✖ Cancel** asks why (item sold out, kitchen closing, too busy, other), then cancels the whole order. The customer sees "Cancelled by the cafe: <reason>" on My Orders and gets a status ping with `status: "cancelled"`.
+- **Menu tab**: a checkbox per item. Ticked means sold out: `food.html` shows "Sold out" in place of Add, and the server refuses it at checkout. Untick it when it's back. Nothing resets on its own.
+
+**The password** is `CAFE_PASSWORD` in `warpx-secrets.json`, created on first start and printed once in the pm2 log. It's separate from the owner password: the counter phone can never open `admin.html`. Change it in the file and `pm2 restart warpx`, and the counter is signed out.
+
+**Cancelling rules.** Only before a rider picks it up. A cancelled order drops off the Driver Hub board, can't be claimed, and a rider who already claimed it is refused at pickup. Every "still open" query in `server.js` reads `status NOT IN ('delivered','cancelled')`, and a new one must too. The owner's dashboard can't cancel.
+
+**n8n**: the status workflow now also receives `cancelled`. Add a branch for it, otherwise the customer gets whatever the default message says.
+
+Same rule as the email: the page never shows prices or who ordered.
 
 ### Customer-side status pings
 

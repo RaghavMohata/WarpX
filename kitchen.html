@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#0B0A12">
+<title>Cafe orders | WarpX</title>
+<!-- The cafe's counter page. Signed in with CAFE_PASSWORD from warpx-secrets.json. -->
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="same-origin">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .k-wrap{ max-width:560px; margin:0 auto; padding:24px 16px 64px; }
+  .k-card{ padding:20px; margin-bottom:14px; }
+  .k-num{ font-size:1.5rem; margin:0; }
+  .k-when{ color:var(--ink-soft); margin:2px 0 12px; font-size:.95rem; }
+  .k-when b{ color:var(--ink); }
+  .k-items{ list-style:none; margin:0 0 14px; padding:0; }
+  .k-items li{ padding:10px 0; border-top:1px solid var(--line); font-size:1.05rem; }
+  .k-note{ display:block; font-size:.88rem; color:var(--ink-soft); margin-top:3px; }
+  .k-actions{ display:flex; gap:10px; flex-wrap:wrap; }
+  .k-actions .btn{ flex:1 1 140px; }
+  .k-reasons{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+  .k-reasons p{ grid-column:1 / -1; margin:0; color:var(--ink-soft); font-size:.9rem; }
+  .k-cancelled{ padding:12px 14px; border-radius:var(--radius); background:var(--danger-bg); color:var(--danger); font-weight:600; margin:0; }
+  .k-cat{ margin:18px 0 6px; font-size:1rem; }
+  .k-item{ display:flex; align-items:center; gap:12px; padding:12px 0; border-top:1px solid var(--line); cursor:pointer; font-size:1rem; }
+  .k-item input{ width:22px; height:22px; flex:none; }
+  .k-item.off span{ color:var(--muted); text-decoration:line-through; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <span class="brand" translate="no"><span class="brand-mark">W</span>WarpX</span>
+    <div class="nav-actions">
+      <button class="btn btn-ghost btn-sm" id="logoutBtn" onclick="logout()" style="display:none;">Log out</button>
+    </div>
+  </div>
+</nav>
+
+<main class="k-wrap">
+  <div class="card k-card" id="lockBox" style="display:none;">
+    <h2 style="margin:0 0 6px;">Cafe orders</h2>
+    <p class="text-muted" id="lockMsg" style="margin:0 0 14px;">Enter the cafe password.</p>
+    <form onsubmit="login(event)">
+      <input type="password" id="pwInput" placeholder="Password" autocomplete="current-password" style="margin-bottom:12px;" required>
+      <button class="btn btn-primary btn-block" id="loginBtn">Open</button>
+    </form>
+  </div>
+
+  <div id="app" style="display:none;">
+    <div class="segmented" style="margin-bottom:16px;">
+      <button id="tabOrders" class="active" onclick="showTab('orders')">Orders</button>
+      <button id="tabMenu" onclick="showTab('menu')">Menu</button>
+    </div>
+    <div id="ordersPanel"><p class="text-muted">Loading…</p></div>
+    <div id="menuPanel" style="display:none;"></div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="lib/schedule.js"></script>
+<script src="js/menu-data.js"></script>
+<script>
+/* Picasso's counter page: accept or cancel incoming food orders, and switch
+   menu items sold out. The server only ever sends items, quantities, notes and
+   order numbers — never prices or who ordered. */
+const REASONS = ["Item sold out", "Kitchen closing", "Too busy right now", "Other"];
+let openCancel = null; // order id whose reason picker is open; refresh waits for it
+let refreshTimer = null;
+
+function esc(str) {
+  const d = document.createElement("div");
+  d.textContent = str == null ? "" : String(str);
+  return d.innerHTML;
+}
+
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+// created_at is UTC ("2026-09-28 11:30:21"); shown on the counter's clock.
+function placedClock(value) {
+  const d = new Date(String(value || "").replace(" ", "T") + "Z");
+  if (isNaN(d)) return "";
+  const h = d.getHours();
+  return `${h % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")} ${h >= 12 ? "pm" : "am"}`;
+}
+
+/* A 401 means the session is gone (expired, or CAFE_PASSWORD changed). */
+async function api(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) { lock("Please enter the cafe password again."); throw new Error("locked"); }
+  return res;
+}
+
+function post(url, body) {
+  return api(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+}
+
+function lock(message) {
+  clearTimeout(refreshTimer);
+  document.getElementById("app").style.display = "none";
+  document.getElementById("logoutBtn").style.display = "none";
+  document.getElementById("lockBox").style.display = "block";
+  document.getElementById("lockMsg").textContent = message || "Enter the cafe password.";
+  document.getElementById("pwInput").focus();
+}
+
+function unlock() {
+  document.getElementById("lockBox").style.display = "none";
+  document.getElementById("app").style.display = "block";
+  document.getElementById("logoutBtn").style.display = "";
+  loadOrders();
+  renderMenu();
+}
+
+async function login(e) {
+  e.preventDefault();
+  const btn = document.getElementById("loginBtn");
+  const input = document.getElementById("pwInput");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/cafe/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: input.value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast(data.error || "Wrong password.");
+    input.value = "";
+    unlock();
+  } catch (err) {
+    showToast("Couldn't reach WarpX. Check the internet connection.");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function logout() {
+  await fetch("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "cafe" }) }).catch(() => {});
+  lock();
+}
+
+// Toggles panels, never re-renders them, so an open reason picker survives.
+function showTab(tab) {
+  document.getElementById("ordersPanel").style.display = tab === "orders" ? "" : "none";
+  document.getElementById("menuPanel").style.display = tab === "menu" ? "" : "none";
+  document.getElementById("tabOrders").classList.toggle("active", tab === "orders");
+  document.getElementById("tabMenu").classList.toggle("active", tab === "menu");
+  if (tab === "menu") renderMenu();
+}
+
+/* ---- Orders ---------------------------------------------------------------- */
+function orderCard(o) {
+  const when = o.scheduledFor ? formatSchedule(o.scheduledFor) : "As soon as possible";
+  const placed = placedClock(o.placedAt);
+  const items = o.items.map((it) => `
+    <li><b>${esc(it.qty)} ×</b> <span translate="no">${esc(it.name)}</span>${it.note ? `<span class="k-note">Note: <span translate="no">${esc(it.note)}</span></span>` : ""}</li>`).join("");
+
+  let actions;
+  if (o.status === "cancelled") {
+    actions = `<p class="k-cancelled">Cancelled${o.cancelReason ? `: ${esc(o.cancelReason)}` : ""}. The customer has been told.</p>`;
+  } else if (openCancel === o.id) {
+    actions = `<div class="k-reasons"><p>Why are you cancelling?</p>
+      ${REASONS.map((r) => `<button class="btn btn-danger-outline" onclick='cancelOrder(${o.id}, ${JSON.stringify(r)}, this)'>${esc(r)}</button>`).join("")}
+      <button class="btn btn-ghost" style="grid-column:1 / -1;" onclick="closeCancel()">Keep the order</button></div>`;
+  } else {
+    actions = `<div class="k-actions">
+      ${o.status === "placed" ? `<button class="btn btn-lime" onclick="acceptOrder(${o.id}, this)">✅ Accept</button>` : `<span class="badge badge-success" style="align-self:center;">Preparing</span>`}
+      <button class="btn btn-danger-outline" onclick="openCancelFor(${o.id})">✖ Cancel</button></div>`;
+  }
+
+  return `<div class="card k-card">
+    <h2 class="k-num" translate="no">#${esc(o.orderNumber)}</h2>
+    <p class="k-when">Needed: <b>${esc(when)}</b>${placed ? ` · placed ${esc(placed)}` : ""}</p>
+    <ul class="k-items">${items}</ul>
+    ${actions}</div>`;
+}
+
+let orders = [];
+function renderOrders() {
+  const panel = document.getElementById("ordersPanel");
+  panel.innerHTML = orders.length
+    ? orders.map(orderCard).join("")
+    : `<div class="card k-card center text-muted">No orders to make right now. This page checks for new ones every 15 seconds.</div>`;
+}
+
+async function loadOrders() {
+  clearTimeout(refreshTimer);
+  try {
+    if (openCancel === null) {
+      const res = await api("/api/cafe/queue");
+      if (res.ok) { orders = await res.json(); renderOrders(); }
+    }
+  } catch (e) {
+    if (e.message === "locked") return;
+  }
+  refreshTimer = setTimeout(loadOrders, 15000);
+}
+
+function openCancelFor(id) { openCancel = id; renderOrders(); }
+function closeCancel() { openCancel = null; renderOrders(); loadOrders(); }
+
+async function acceptOrder(id, btn) {
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  try {
+    const res = await post(`/api/cafe/queue/${id}/accept`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) showToast(data.error || "That didn't save. Please try again.");
+    else showToast(`Order #${data.orderNumber} accepted`);
+  } catch (e) {
+    if (e.message !== "locked") showToast("That didn't save. Please try again.");
+  }
+  loadOrders();
+}
+
+async function cancelOrder(id, reason, btn) {
+  btn.disabled = true;
+  try {
+    const res = await post(`/api/cafe/queue/${id}/cancel`, { reason });
+    const data = await res.json().catch(() => ({}));
+    showToast(res.ok ? `Order #${data.orderNumber} cancelled` : (data.error || "That didn't save. Please try again."));
+  } catch (e) {
+    if (e.message === "locked") return;
+    showToast("That didn't save. Please try again.");
+  }
+  openCancel = null;
+  loadOrders();
+}
+
+/* ---- Menu: sold-out switches ------------------------------------------------ */
+async function renderMenu() {
+  const panel = document.getElementById("menuPanel");
+  let off;
+  try { off = new Set(await (await fetch("/api/menu/sold-out")).json()); }
+  catch (e) { panel.innerHTML = `<p class="text-muted">Couldn't load the menu. Check the internet connection.</p>`; return; }
+  panel.innerHTML = `<p class="text-muted" style="margin:0 0 4px;">Tick an item when it runs out. Customers see "Sold out" and can't order it until you untick it.</p>` +
+    PICASSO_MENU.map((cat) => `
+      <h3 class="k-cat">${cat.icon} ${esc(cat.category)}</h3>
+      ${cat.items.map((item) => `
+        <label class="k-item ${off.has(item.name) ? "off" : ""}">
+          <input type="checkbox" ${off.has(item.name) ? "checked" : ""} onchange='setSoldOut(${JSON.stringify(item.name)}, this)'>
+          <span translate="no">${esc(item.name)}</span>
+        </label>`).join("")}`).join("");
+}
+
+async function setSoldOut(name, box) {
+  box.disabled = true;
+  try {
+    const res = await api("/api/cafe/menu/sold-out", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, soldOut: box.checked }),
+    });
+    if (!res.ok) throw new Error();
+    box.closest(".k-item").classList.toggle("off", box.checked);
+    showToast(box.checked ? `${name}: sold out` : `${name}: back on the menu`);
+  } catch (e) {
+    if (e.message === "locked") return;
+    box.checked = !box.checked;
+    showToast("That didn't save. Please try again.");
+  } finally {
+    box.disabled = false;
+  }
+}
+
+fetch("/api/cafe/session").then((r) => (r.ok ? unlock() : lock())).catch(() => lock("Couldn't reach WarpX. Check the internet connection."));
+</script>
+<script src="js/translate.js"></script>
+</body>
+</html>

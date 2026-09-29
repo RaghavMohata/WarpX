@@ -175,6 +175,15 @@ function esc(str) {
 const ITEMS_BY_NAME = {};
 PICASSO_MENU.forEach((cat) => cat.items.forEach((i) => { ITEMS_BY_NAME[i.name] = i; }));
 
+/* Items the cafe has ticked sold out in kitchen.html. Filled after the first
+   render, so the menu never waits on the network; the server refuses them at
+   checkout either way. */
+let SOLD_OUT = new Set();
+fetch("/api/menu/sold-out").then((r) => r.ok ? r.json() : []).then((names) => {
+  SOLD_OUT = new Set(names);
+  if (SOLD_OUT.size) renderMenu();
+}).catch(() => {});
+
 function renderMenu() {
   const container = document.getElementById("menuContainer");
   container.innerHTML = PICASSO_MENU.map((cat) => `
@@ -185,7 +194,7 @@ function renderMenu() {
         <div class="line"></div>
       </div>
       ${cat.items.map((item) => `
-        <div class="menu-item">
+        <div class="menu-item"${SOLD_OUT.has(item.name) ? ' style="opacity:.5;"' : ""}>
           <div class="menu-item-main">
             ${item.img
               ? `<button type="button" class="item-media tappable" onclick='openShot(${JSON.stringify(item.name)})'
@@ -202,7 +211,9 @@ function renderMenu() {
           </div>
           <div class="menu-item-right">
             <span class="price" translate="no">₹${item.price}</span>
-            <button class="add-btn" onclick='addFoodItem(${JSON.stringify(item.name)}, ${item.price}, ${item.moq || 1})'>Add</button>
+            ${SOLD_OUT.has(item.name)
+              ? `<span class="badge badge-danger">Sold out</span>`
+              : `<button class="add-btn" onclick='addFoodItem(${JSON.stringify(item.name)}, ${item.price}, ${item.moq || 1})'>Add</button>`}
           </div>
         </div>
       `).join("")}

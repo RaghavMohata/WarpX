@@ -185,6 +185,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 `);
 
+/* Menu items the cafe has switched off from kitchen.html. A row means sold
+   out; unticking deletes it. Keyed by the item's name in js/menu-data.js. */
+db.exec(`CREATE TABLE IF NOT EXISTS sold_out (name TEXT PRIMARY KEY, since TEXT DEFAULT (datetime('now')))`);
+
 // Safe migrations for a warpx.db created before these columns existed.
 for (const col of ["password_hash TEXT", "password_salt TEXT", "email TEXT", "google_sub TEXT", "avatar_url TEXT", "reset_code_hash TEXT", "reset_expires_at TEXT"]) {
   try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch (e) {}
@@ -192,7 +196,7 @@ for (const col of ["password_hash TEXT", "password_salt TEXT", "email TEXT", "go
 for (const col of ["google_sub TEXT", "email TEXT"]) {
   try { db.exec(`ALTER TABLE drivers ADD COLUMN ${col}`); } catch (e) {}
 }
-for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)", "delivery_otp TEXT", "address_label TEXT", "scheduled_for TEXT", "delivered_at TEXT", "weekly_window_id INTEGER REFERENCES weekly_windows(id)", "route_position INTEGER", "distance_fee REAL DEFAULT 0", "area TEXT"]) {
+for (const col of ["payment_method TEXT DEFAULT 'cod'", "upi_id TEXT", "lat REAL", "lng REAL", "address TEXT", "driver_id INTEGER REFERENCES drivers(id)", "delivery_otp TEXT", "address_label TEXT", "scheduled_for TEXT", "delivered_at TEXT", "weekly_window_id INTEGER REFERENCES weekly_windows(id)", "route_position INTEGER", "distance_fee REAL DEFAULT 0", "area TEXT", "cancel_reason TEXT"]) {
   try { db.exec(`ALTER TABLE orders ADD COLUMN ${col}`); } catch (e) {}
 }
 
